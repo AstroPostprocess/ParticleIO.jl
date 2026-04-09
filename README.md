@@ -6,13 +6,13 @@
 
 ## Installation
 
-Before installing `ParticleIO.jl`, `Partia.jl` is required. Please install `Partia.jl` first.
+Before installing `ParticleIO.jl`, ([`Partia.jl`](https://github.com/AstroPostprocess/Partia.jl)) is required. Please install ([`Partia.jl`](https://github.com/AstroPostprocess/Partia.jl)) first.
 
 `ParticleIO.jl` is not registered in the General registry. If you want to install it directly from this repository, use
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/weishansu011017/DistortedDustyDiscAnalysisToolkits.git", subdir="ParticleIO.jl")
+Pkg.add(url="https://github.com/AstroPostprocess/ParticleIO.jl")
 ```
 
 ## Reading Phantom dump files
@@ -103,7 +103,7 @@ For a dataset read directly from `read_phantom`, the usual path is to use the ma
 ```julia
 using ParticleIO
 
-data = read_phantom("dumpfile_00000", "all")[1]
+data = read_phantom("dumpfile_00000", seperate_types="all")[1]
 
 input, catalog = build_input(
     data,
