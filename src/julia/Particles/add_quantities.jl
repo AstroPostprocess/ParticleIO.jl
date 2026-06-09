@@ -826,33 +826,6 @@ function _Kepelarian_azimuthal_velocity(s :: V, vϕ :: V, μ :: TF) where {TF <:
     return vϕk, vrelϕ
 end
 
-function _Kepelarian_azimuthal_velocity(r :: NTuple{3, V}, v :: NTuple{3, V}, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, μ :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
-    x, y, _ = r
-    vx, vy, _ = v
-    xref, yref, _ = rref
-    vxref, vyref, _ = vref
-
-    vϕk = similar(x)
-    vrelϕ = similar(x)
-    sqrtμ = sqrt(μ)
-    @inbounds @simd for i in eachindex(vϕk, vrelϕ)
-        Δxi = x[i] - xref
-        Δyi = y[i] - yref
-        Δvxi = vx[i] - vxref
-        Δvyi = vy[i] - vyref
-        si, ϕi = _cart2cylin(Δxi, Δyi)
-        _, vϕi = _vector_cart2cylin(ϕi, Δvxi, Δvyi)
-        vϕki = sqrtμ * sqrt(inv(si))
-        vrelϕi = vϕi - vϕki
-        @inbounds begin
-            vrelϕ[i] = vrelϕi
-            vϕk[i] = vϕki
-        end
-
-    end
-    return vϕk, vrelϕ
-end
-
 """
     add_Kepelarian_azimuthal_velocity!(data::ParticleDataFrame)
 Add the Kepelarian azimuthal velocity for each particles.
@@ -882,7 +855,7 @@ end
 
 """
     add_Kepelarian_azimuthal_velocity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
-Add the Kepelarian azimuthal velocity relative to `rref` and `vref`.
+Add the cylindrical coordinate and Kepelarian azimuthal velocity relative to `rref` and `vref`.
 
 # Parameters
 - `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
@@ -899,7 +872,12 @@ function add_Kepelarian_azimuthal_velocity!(data :: ParticleDataFrame, rref :: N
     vx = data.dfdata.vx
     vy = data.dfdata.vy
     vz = data.dfdata.vz
-    vϕk, vrelϕ = _Kepelarian_azimuthal_velocity((x, y, z), (vx, vy, vz), rref, vref, μ)
+    s, ϕ, vs, vϕ = _cylindrical((x, y, z), (vx, vy, vz), rref, vref)
+    vϕk, vrelϕ = _Kepelarian_azimuthal_velocity(s, vϕ, μ)
+    data.dfdata.s = s
+    data.dfdata.ϕ = ϕ
+    data.dfdata.vs = vs
+    data.dfdata.vϕ = vϕ
     data.dfdata.vϕk = vϕk
     data.dfdata.vrelϕ = vrelϕ
     return nothing
