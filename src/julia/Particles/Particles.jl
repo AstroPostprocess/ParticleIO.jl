@@ -34,7 +34,7 @@ module Particles
 using Base.Threads
 using DataFrames
 using Statistics
-using Partia.Tools
+using Partia.Tools: _cart2cylin, _vector_cart2cylin
 
 # ParticleDataFrame & basic adding quantities function
 include(joinpath(@__DIR__, "ParticleDataFrame.jl"))

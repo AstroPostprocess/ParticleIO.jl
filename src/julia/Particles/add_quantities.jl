@@ -465,7 +465,7 @@ function _potential_energy(x :: V, y :: V, z :: V, m :: V, xt :: TF, yt :: TF, z
 end
 
 """
-    add_potential_energy!(data::ParticleDataFrame, sink_data::ParticleDataFrame; pecific_mass_column::Symbol = :m, store_sinks :: V = Int[]) where {V <: AbstractVector{<:Integer}}
+    add_potential_energy!(data::ParticleDataFrame, sink_data::ParticleDataFrame; specific_mass_column::Symbol = :m, store_sinks :: V = Int[]) where {V <: AbstractVector{<:Integer}}
 
 Compute and add the gravitational potential energy of all gas particles in `data` with respect to each sink particle in `sink_data`.
 
@@ -677,7 +677,7 @@ function add_Kepelarian_azimuthal_velocity!(data::ParticleDataFrame)
     μ = G * M1
     s = data.dfdata.s
     vϕ = data.dfdata.vϕ
-    vϕk, vrelϕ = _Kepelarian_azimuthal_velocity!(s, vϕ, μ)
+    vϕk, vrelϕ = _Kepelarian_azimuthal_velocity(s, vϕ, μ)
     data.dfdata.vϕk = vϕk
     data.dfdata.vrelϕ = vrelϕ
     return nothing
