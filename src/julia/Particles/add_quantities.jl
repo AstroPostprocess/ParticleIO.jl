@@ -46,13 +46,13 @@ end
 
 """
     get_rnorm(data::ParticleDataFrame)
-Get the array of distance between particles and the origin ON THE XY-PLANE PROJECTION.
+Get the array of distance between particles and the origin.
 
 # Parameters
 - `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
 
 # Returns
-- `Vector`: The array of distance between particles and the origin ON THE XY-PLANE PROJECTION.
+- `Vector`: The array of distance between particles and the origin.
 """
 function get_rnorm(data::ParticleDataFrame)
     return get_rnorm_ref(data, (0.0, 0.0, 0.0))
@@ -366,6 +366,27 @@ function add_norm!(data::ParticleDataFrame)
     return nothing
 end
 
+"""
+    add_norm!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat}
+Add the relative length of position vector and velocity vector in 3D.
+
+# Parameters
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
+- `rref :: NTuple{3, TF}`: The reference position.
+- `vref :: NTuple{3, TF}`: The reference velocity.
+"""
+function add_norm!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat}
+    x = data.dfdata.x; y = data.dfdata.y; z = data.dfdata.z
+    vx = data.dfdata.vx; vy = data.dfdata.vy; vz = data.dfdata.vz
+
+    r = Euclidean_distance(x, y, z, rref)
+    vr = Euclidean_distance(vx, vy, vz, vref)
+
+    data.dfdata.r = r
+    data.dfdata.vr = vr
+    return nothing
+end
+
 ### Energy
 function _kinetic_energy(vx :: V, vy :: V, vz :: V, m :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
     KE = similar(vx)
@@ -387,6 +408,37 @@ function _kinetic_energy(vx :: V, vy :: V, vz :: V, m :: V) where {TF <: Abstrac
         vxi = vx[i]; vyi = vy[i]; vzi = vz[i];
         mi = m[i]
         vi2 = vxi * vxi + vyi * vyi + vzi * vzi
+
+        KEi = C * mi * vi2
+        KE[i] = KEi
+    end
+    return KE
+end
+
+function _kinetic_energy(vx :: V, vy :: V, vz :: V, m :: TF, vxt :: TF, vyt :: TF, vzt :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    KE = similar(vx)
+    ml2 = TF(0.5) * m
+    @inbounds @simd for i in eachindex(KE)
+        Δvxi = vx[i] - vxt
+        Δvyi = vy[i] - vyt
+        Δvzi = vz[i] - vzt
+        vi2 = Δvxi * Δvxi + Δvyi * Δvyi + Δvzi * Δvzi
+
+        KEi = ml2 * vi2
+        KE[i] = KEi
+    end
+    return KE
+end
+
+function _kinetic_energy(vx :: V, vy :: V, vz :: V, m :: V, vxt :: TF, vyt :: TF, vzt :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    KE = similar(vx)
+    C = TF(0.5)
+    @inbounds @simd for i in eachindex(KE)
+        Δvxi = vx[i] - vxt
+        Δvyi = vy[i] - vyt
+        Δvzi = vz[i] - vzt
+        mi = m[i]
+        vi2 = Δvxi * Δvxi + Δvyi * Δvyi + Δvzi * Δvzi
 
         KEi = C * mi * vi2
         KE[i] = KEi
@@ -426,6 +478,72 @@ function add_kinetic_energy!(data::ParticleDataFrame; specific_mass_column :: Sy
         masses = data.dfdata[!, specific_mass_column]
         KE = _kinetic_energy(vx, vy, vz, masses)
         data.dfdata.KE = KE
+    end
+    return nothing
+end
+
+"""
+    add_kinetic_energy!(data::ParticleDataFrame, sink_data::ParticleDataFrame; specific_mass_column::Symbol = :m, store_sinks :: V = Int[]) where {V <: AbstractVector{<:Integer}}
+Compute and add the kinetic energy of all gas particles in `data` with respect to each sink particle in `sink_data`.
+
+# Parameters
+- `data :: ParticleDataFrame`: SPH particle data stored in `ParticleDataFrame`.
+- `sink_data :: ParticleDataFrame`: Sink particle data used as velocity references.
+
+# Keyword Arguments
+| Name | Default | Description |
+|------|----------|-------------|
+| `specific_mass_column` | `:m` | Symbol of the column storing per-particle masses. If missing, a global mass in `data.params[:mass]` will be used instead. |
+| `store_sinks` | `Int[]` | Indices of sink particles for which individual kinetic energy columns (`KEₙ`) will be stored. |
+"""
+function add_kinetic_energy!(data::ParticleDataFrame, sink_data :: ParticleDataFrame; specific_mass_column::Symbol = :m, store_sinks :: V = Int[]) where {V <: AbstractVector{<:Integer}}
+    vx = data.dfdata.vx
+    vy = data.dfdata.vy
+    vz = data.dfdata.vz
+
+    vxt = sink_data.dfdata.vx
+    vyt = sink_data.dfdata.vy
+    vzt = sink_data.dfdata.vz
+
+    TF = eltype(vx)
+    num_sink = get_npart(sink_data)
+
+    use_threads = (nthreads() > 1) && (nthreads() ÷ 2 > num_sink)
+
+    if !(hasproperty(data.dfdata, specific_mass_column))
+        if (haskey(data.params, :mass))
+            mass = TF(data.params[:mass])
+            if use_threads
+                KEs = Vector{Vector{TF}}(undef, num_sink)
+                @threads for n in 1:num_sink
+                    KEs[n] = _kinetic_energy(vx, vy, vz, mass, vxt[n], vyt[n], vzt[n])
+                end
+            else
+                KEs = [_kinetic_energy(vx, vy, vz, mass, vxt[n], vyt[n], vzt[n]) for n in 1:num_sink]
+            end
+            for n in 1:num_sink
+                if n in store_sinks
+                    data.dfdata[!, "KE$(n)"] = KEs[n]
+                end
+            end
+        else
+            error("ArgumentError: Mass is missing from this data")
+        end
+    else
+        masses = data.dfdata[!, specific_mass_column]
+        if use_threads
+            KEs = Vector{Vector{TF}}(undef, num_sink)
+            @threads for n in 1:num_sink
+                KEs[n] = _kinetic_energy(vx, vy, vz, masses, vxt[n], vyt[n], vzt[n])
+            end
+        else
+            KEs = [_kinetic_energy(vx, vy, vz, masses, vxt[n], vyt[n], vzt[n]) for n in 1:num_sink]
+        end
+        for n in 1:num_sink
+            if n in store_sinks
+                data.dfdata[!, "KE$(n)"] = KEs[n]
+            end
+        end
     end
     return nothing
 end
@@ -566,11 +684,11 @@ end
 Compute and add boundedness flags for each particle relative to one or more sink particles.
 
 A particle is considered *bound* to a sink if its total energy (kinetic + potential) relative to that sink is negative,  
-i.e. `E_total = KE + PEₙ < 0`.
+i.e. `E_total = KEₙ + PEₙ < 0`.
 
 # Parameters
 - `data :: ParticleDataFrame`:  
-  SPH particle data stored in a `ParticleDataFrame`. Must contain kinetic energy `KE` and potential energy columns `PEₙ`.
+  SPH particle data stored in a `ParticleDataFrame`. Must contain kinetic energy columns `KEₙ` and potential energy columns `PEₙ`.
 
 # Keyword Arguments
 | Name | Default | Description |
@@ -579,18 +697,18 @@ i.e. `E_total = KE + PEₙ < 0`.
 
 """
 function add_bounded_flag!(data::ParticleDataFrame; check_sinks :: V = Int[1]) where {V <: AbstractVector{<:Integer}}
-    if !hasproperty(data.dfdata, :KE)
-        error("ArgumentError: Kinetic Energy of particles is missing!")
-    end
     for n in check_sinks
         if !hasproperty(data.dfdata, "PE$(n)")
             error("ArgumentError: Potential Energy to sink $(n) is missing!")
         end
+        if !hasproperty(data.dfdata, "KE$(n)")
+            error("ArgumentError: Kinetic Energy to sink $(n) is missing!")
+        end
     end
 
-    KE = data.dfdata.KE
+    KEs = [data.dfdata[!, "KE$(n)"] for n in check_sinks]
     PEs = [data.dfdata[!, "PE$(n)"] for n in check_sinks]
-    flags = [_bounded_flag(KE, PEs[k]) for k in eachindex(check_sinks)]
+    flags = [_bounded_flag(KEs[k], PEs[k]) for k in eachindex(check_sinks)]
 
     for (k,n) in enumerate(check_sinks)
         data.dfdata[!, "bflag$(n)"] = flags[k]
@@ -601,14 +719,39 @@ end
 
 ### Cylindrical coordinate
 function _cylindrical(x :: V, y :: V, vx :: V, vy :: V) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
-    s  = similar(x)    
-    ϕ  = similar(x)   
-    vs = similar(x)   
-    vϕ = similar(x) 
+    s  = similar(x)
+    ϕ  = similar(x)
+    vs = similar(x)
+    vϕ = similar(x)
     @inbounds @simd for i in eachindex(s, ϕ, vs, vϕ)
         xi = x[i]; yi = y[i]; vxi = vx[i]; vyi = vy[i]
         si, ϕi = _cart2cylin(xi, yi)
         vsi, vϕi = _vector_cart2cylin(ϕi, vxi, vyi)
+
+        @inbounds begin
+            s[i]  = si; ϕ[i]  = ϕi; vs[i] = vsi; vϕ[i] = vϕi
+        end
+    end
+    return s, ϕ, vs, vϕ
+end
+
+function _cylindrical(r :: NTuple{3, V}, v :: NTuple{3, V}, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    x, y, _ = r
+    vx, vy, _ = v
+    xref, yref, _ = rref
+    vxref, vyref, _ = vref
+
+    s  = similar(x)
+    ϕ  = similar(x)
+    vs = similar(x)
+    vϕ = similar(x)
+    @inbounds @simd for i in eachindex(s, ϕ, vs, vϕ)
+        Δxi = x[i] - xref
+        Δyi = y[i] - yref
+        Δvxi = vx[i] - vxref
+        Δvyi = vy[i] - vyref
+        si, ϕi = _cart2cylin(Δxi, Δyi)
+        vsi, vϕi = _vector_cart2cylin(ϕi, Δvxi, Δvyi)
 
         @inbounds begin
             s[i]  = si; ϕ[i]  = ϕi; vs[i] = vsi; vϕ[i] = vϕi
@@ -625,12 +768,38 @@ Add the cylindrical/polar coordinate (s,ϕ) and corresponding velocity (vs, vϕ)
 - `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
 """
 function add_cylindrical!(data::ParticleDataFrame)
-    x  = data.dfdata.x 
-    y  = data.dfdata.y 
+    x  = data.dfdata.x
+    y  = data.dfdata.y
     vx = data.dfdata.vx
     vy = data.dfdata.vy
 
-    s, ϕ, vs, vϕ = _cylindrical(x, y, vx, vy)  
+    s, ϕ, vs, vϕ = _cylindrical(x, y, vx, vy)
+
+    data.dfdata.s  = s
+    data.dfdata.ϕ  = ϕ
+    data.dfdata.vs = vs
+    data.dfdata.vϕ = vϕ
+    return nothing
+end
+
+"""
+    add_cylindrical!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat}
+Add cylindrical/polar coordinate and velocity relative to `rref` and `vref`.
+
+# Parameters
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
+- `rref :: NTuple{3, TF}`: The reference position.
+- `vref :: NTuple{3, TF}`: The reference velocity.
+"""
+function add_cylindrical!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat}
+    x  = data.dfdata.x
+    y  = data.dfdata.y
+    z  = data.dfdata.z
+    vx = data.dfdata.vx
+    vy = data.dfdata.vy
+    vz = data.dfdata.vz
+
+    s, ϕ, vs, vϕ = _cylindrical((x, y, z), (vx, vy, vz), rref, vref)
 
     data.dfdata.s  = s
     data.dfdata.ϕ  = ϕ
@@ -652,10 +821,38 @@ function _Kepelarian_azimuthal_velocity(s :: V, vϕ :: V, μ :: TF) where {TF <:
             vrelϕ[i] = vrelϕi
             vϕk[i] = vϕki
         end
-        
+
     end
     return vϕk, vrelϕ
 end
+
+function _Kepelarian_azimuthal_velocity(r :: NTuple{3, V}, v :: NTuple{3, V}, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, μ :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    x, y, _ = r
+    vx, vy, _ = v
+    xref, yref, _ = rref
+    vxref, vyref, _ = vref
+
+    vϕk = similar(x)
+    vrelϕ = similar(x)
+    sqrtμ = sqrt(μ)
+    @inbounds @simd for i in eachindex(vϕk, vrelϕ)
+        Δxi = x[i] - xref
+        Δyi = y[i] - yref
+        Δvxi = vx[i] - vxref
+        Δvyi = vy[i] - vyref
+        si, ϕi = _cart2cylin(Δxi, Δyi)
+        _, vϕi = _vector_cart2cylin(ϕi, Δvxi, Δvyi)
+        vϕki = sqrtμ * sqrt(inv(si))
+        vrelϕi = vϕi - vϕki
+        @inbounds begin
+            vrelϕ[i] = vrelϕi
+            vϕk[i] = vϕki
+        end
+
+    end
+    return vϕk, vrelϕ
+end
+
 """
     add_Kepelarian_azimuthal_velocity!(data::ParticleDataFrame)
 Add the Kepelarian azimuthal velocity for each particles.
@@ -663,8 +860,8 @@ Add the Kepelarian azimuthal velocity for each particles.
 # Parameters
 - `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 """
-function add_Kepelarian_azimuthal_velocity!(data::ParticleDataFrame)
-    if !(haskey(data.params, :Origin_sink_id)) || (data.params[:Origin_sink_id] == -1)
+function add_Kepelarian_azimuthal_velocity!(data :: ParticleDataFrame)
+    if !(haskey(data.params, :Origin_sink_id)) || (data.params[:Origin_sink_id][] == -1)
         error(
             "OriginLocatedError: Wrong origin located. Please use COM2star!() to transfer the coordinate.",
         )
@@ -678,6 +875,31 @@ function add_Kepelarian_azimuthal_velocity!(data::ParticleDataFrame)
     s = data.dfdata.s
     vϕ = data.dfdata.vϕ
     vϕk, vrelϕ = _Kepelarian_azimuthal_velocity(s, vϕ, μ)
+    data.dfdata.vϕk = vϕk
+    data.dfdata.vrelϕ = vrelϕ
+    return nothing
+end
+
+"""
+    add_Kepelarian_azimuthal_velocity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
+Add the Kepelarian azimuthal velocity relative to `rref` and `vref`.
+
+# Parameters
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
+- `rref :: NTuple{3, TF}`: The reference position.
+- `vref :: NTuple{3, TF}`: The reference velocity.
+- `mref :: TF`: The reference mass.
+"""
+function add_Kepelarian_azimuthal_velocity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
+    G = get_unit_G(data)
+    μ = G * mref
+    x = data.dfdata.x
+    y = data.dfdata.y
+    z = data.dfdata.z
+    vx = data.dfdata.vx
+    vy = data.dfdata.vy
+    vz = data.dfdata.vz
+    vϕk, vrelϕ = _Kepelarian_azimuthal_velocity((x, y, z), (vx, vy, vz), rref, vref, μ)
     data.dfdata.vϕk = vϕk
     data.dfdata.vrelϕ = vrelϕ
     return nothing
@@ -697,6 +919,23 @@ function _Kepelarian_angular_velocity(x :: V, y :: V, z :: V, μ :: TF) where {T
     return Ωk
 end
 
+function _Kepelarian_angular_velocity(r :: NTuple{3, V}, rref :: NTuple{3, TF}, μ :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    x, y, z = r
+    xref, yref, zref = rref
+    Ωk = similar(x)
+    sqrtμ = sqrt(μ)
+    @inbounds @simd for i in eachindex(Ωk)
+        Δxi = x[i] - xref
+        Δyi = y[i] - yref
+        Δzi = z[i] - zref
+        ri = sqrt(Δxi * Δxi + Δyi * Δyi + Δzi * Δzi)
+        invri3 = inv(ri * ri * ri)
+        Ωki = sqrtμ * sqrt(invri3)
+        Ωk[i] = Ωki
+    end
+    return Ωk
+end
+
 """
     add_Kepelarian_angular_velocity!(data::ParticleDataFrame)
 Add the Kepelarian angular velocity for each particles.
@@ -705,7 +944,7 @@ Add the Kepelarian angular velocity for each particles.
 - `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 """
 function add_Kepelarian_angular_velocity!(data::ParticleDataFrame)
-    if !(haskey(data.params, :Origin_sink_id)) || (data.params[:Origin_sink_id] == -1)
+    if !(haskey(data.params, :Origin_sink_id)) || (data.params[:Origin_sink_id][] == -1)
         error(
             "OriginLocatedError: Wrong origin located. Please use COM2star!() to transfer the coordinate.",
         )
@@ -721,27 +960,83 @@ function add_Kepelarian_angular_velocity!(data::ParticleDataFrame)
     return nothing
 end
 
+"""
+    add_Kepelarian_angular_velocity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
+Add Keplerian angular velocity in the frame centered at `rref`.
+
+# Parameters
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
+- `rref :: NTuple{3, TF}`: The reference position.
+- `mref :: TF`: The reference mass.
+"""
+function add_Kepelarian_angular_velocity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
+    G = get_unit_G(data)
+    μ = G * mref
+    x = data.dfdata.x
+    y = data.dfdata.y
+    z = data.dfdata.z
+    Ωk = _Kepelarian_angular_velocity((x, y, z), rref, μ)
+    data.dfdata.Ωk = Ωk
+    return nothing
+end
+
 ### Eccentricity
 function _eccentricity(x :: V, y :: V, z :: V, vx :: V, vy :: V, vz :: V, μ :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
-    e  = similar(x)     
+    e  = similar(x)
     invµ = inv(μ)
     @inbounds @simd for i in eachindex(e)
         xi = x[i]; yi = y[i]; zi=z[i]; vxi = vx[i]; vyi = vy[i]; vzi = vz[i]
-        
+
         ri = sqrt(xi * xi + yi * yi + zi * zi)
         vri2 = vxi * vxi + vyi * vyi + vzi * vzi
 
         ridotvi = xi * vxi + yi * vyi + zi * vzi
-        
+
         invri = inv(ri)
 
         ridotvilµ = ridotvi * invµ
         vri2lµminvri = vri2 * invµ - invri
-        
+
 
         exi = xi * vri2lµminvri - vxi * ridotvilµ
         eyi = yi * vri2lµminvri - vyi * ridotvilµ
         ezi = zi * vri2lµminvri - vzi * ridotvilµ
+
+        e[i] = sqrt(exi * exi + eyi * eyi + ezi * ezi)
+    end
+    return e
+end
+
+function _eccentricity(r :: NTuple{3, V}, v :: NTuple{3, V}, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, μ :: TF) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    x, y, z = r
+    vx, vy, vz = v
+    xref, yref, zref = rref
+    vxref, vyref, vzref = vref
+
+    e  = similar(x)
+    invµ = inv(μ)
+    @inbounds @simd for i in eachindex(e)
+        Δxi = x[i] - xref
+        Δyi = y[i] - yref
+        Δzi = z[i] - zref
+        Δvxi = vx[i] - vxref
+        Δvyi = vy[i] - vyref
+        Δvzi = vz[i] - vzref
+
+        ri = sqrt(Δxi * Δxi + Δyi * Δyi + Δzi * Δzi)
+        vri2 = Δvxi * Δvxi + Δvyi * Δvyi + Δvzi * Δvzi
+
+        ridotvi = Δxi * Δvxi + Δyi * Δvyi + Δzi * Δvzi
+
+        invri = inv(ri)
+
+        ridotvilµ = ridotvi * invµ
+        vri2lµminvri = vri2 * invµ - invri
+
+
+        exi = Δxi * vri2lµminvri - Δvxi * ridotvilµ
+        eyi = Δyi * vri2lµminvri - Δvyi * ridotvilµ
+        ezi = Δzi * vri2lµminvri - Δvzi * ridotvilµ
 
         e[i] = sqrt(exi * exi + eyi * eyi + ezi * ezi)
     end
@@ -756,7 +1051,7 @@ Add the eccentricity for each particle with respect to current origin.
 - `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 """
 function add_eccentricity!(data::ParticleDataFrame)
-    if !(haskey(data.params, :Origin_sink_id)) || (data.params[:Origin_sink_id] == -1)
+    if !(haskey(data.params, :Origin_sink_id)) || (data.params[:Origin_sink_id][] == -1)
         error(
             "OriginLocatedError: Wrong origin located. Please use COM2star!() to transfer the coordinate.",
         )
@@ -771,7 +1066,31 @@ function add_eccentricity!(data::ParticleDataFrame)
     vy = data.dfdata.vy
     vz = data.dfdata.vz
     e = _eccentricity(x, y, z, vx, vy, vz, μ)
-    data.dfdata.e = e 
+    data.dfdata.e = e
+    return nothing
+end
+
+"""
+    add_eccentricity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
+Add the eccentricity relative to `rref` and `vref`.
+
+# Parameters
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
+- `rref :: NTuple{3, TF}`: The reference position.
+- `vref :: NTuple{3, TF}`: The reference velocity.
+- `mref :: TF`: The reference mass.
+"""
+function add_eccentricity!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}, mref :: TF) where {TF <: AbstractFloat}
+    G = get_unit_G(data)
+    μ = G * mref
+    x = data.dfdata.x
+    y = data.dfdata.y
+    z = data.dfdata.z
+    vx = data.dfdata.vx
+    vy = data.dfdata.vy
+    vz = data.dfdata.vz
+    e = _eccentricity((x, y, z), (vx, vy, vz), rref, vref, μ)
+    data.dfdata.e = e
     return nothing
 end
 
@@ -788,6 +1107,41 @@ function _specific_angular_momentum(x :: V, y :: V, z :: V, vx :: V, vy :: V, vz
         lxi = yi * vzi - zi * vyi
         lyi = zi * vxi - xi * vzi
         lzi = xi * vyi - yi * vxi
+        li  = sqrt(lxi * lxi + lyi * lyi + lzi * lzi)
+
+        @inbounds begin
+            lx[i] = lxi; ly[i] = lyi; lz[i] = lzi; l[i] = li
+        end
+    end
+    return lx, ly, lz, l
+end
+
+function _specific_angular_momentum(r :: NTuple{3, V}, v :: NTuple{3, V}, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
+    x, y, z = r
+    vx, vy, vz = v
+
+    xref, yref, zref = rref
+    vxref, vyref, vzref = vref
+
+    lx  = similar(x)
+    ly  = similar(y)
+    lz  = similar(z)
+    l   = similar(x)
+
+    @inbounds @simd for i in eachindex(lx, ly, lz, l)
+        xi = x[i]; yi = y[i]; zi = z[i]; vxi = vx[i]; vyi = vy[i]; vzi = vz[i]
+
+        Δxi = xi - xref
+        Δyi = yi - yref
+        Δzi = zi - zref
+
+        Δvxi = vxi - vxref
+        Δvyi = vyi - vyref
+        Δvzi = vzi - vzref
+
+        lxi = Δyi * Δvzi - Δzi * Δvyi
+        lyi = Δzi * Δvxi - Δxi * Δvzi
+        lzi = Δxi * Δvyi - Δyi * Δvxi
         li  = sqrt(lxi * lxi + lyi * lyi + lzi * lzi)
 
         @inbounds begin
@@ -820,64 +1174,26 @@ function add_specific_angular_momentum!(data::ParticleDataFrame)
     return nothing
 end
 
-### Tilting (i)
-function _tilt(x :: V, y :: V, z :: V, lx :: V, ly :: V, lz :: V, l :: V) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
-    tilt = similar(x)
-    @inbounds @simd for i in eachindex(tilt)
-        xi = x[i]  ; yi = y[i]  ; zi = z[i]
-        lxi = lx[i]; lyi = ly[i]; lzi = lz[i];
-        li = l[i]
-        invli = inv(li)
-
-        ri = sqrt(xi * xi + yi * yi + zi * zi)
-        invri = inv(ri)
-        rlproji = invli * (xi * lxi + yi * lyi + zi * lzi)              # Prevent non-normalized
-        rlproji = clamp(rlproji, -1.0, 1.0)
-        tilti = asin(rlproji * invri)
-        tilt[i] = tilti
-    end
-    return tilt
-end
-
 """
-    add_tilt!(data::ParticleDataFrame)
-
-Compute and add the inclination angle (tilt) between each particle’s position vector **r**
-and its specific angular momentum vector **l**.
-
-The tilt is defined as  
-`tilt = asin((r ⋅ l) / (|r||l|))`,  
-representing the local misalignment angle between a particle’s orbital plane and its angular momentum direction.
-
-For **gravitationally bound** particles (`E < 0`), it represents the true orbital inclination of the particle’s motion.  
-For **unbound** particles (`E ≥ 0`), it only indicates the instantaneous direction of angular momentum and has no stable orbital interpretation.
+    add_specific_angular_momentum!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat}
+Compute and add the specific angular momentum vector relative to `rref` and `vref`.
 
 # Parameters
-- `data :: ParticleDataFrame`:  
-  The SPH particle data stored in a `ParticleDataFrame`.  
-  Must contain columns `x`, `y`, `z`, and either precomputed angular momentum components `lx`, `ly`, `lz`, `lnorm`,  
-  or allow them to be generated automatically by `add_specific_angular_momentum!()`.
-
-# Behavior
-- If `lx`, `ly`, or `lz` columns are missing, they are automatically computed.  
-- Adds a new column `tilt` to `data.dfdata` containing the tilt angle (in radians) for each particle.
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
+- `rref :: NTuple{3, TF}`: The reference position.
+- `vref :: NTuple{3, TF}`: The reference velocity.
 """
-function add_tilt!(data::ParticleDataFrame)
-    if !(hasproperty(data.dfdata, "lx")) || !(hasproperty(data.dfdata, "ly")) || !(hasproperty(data.dfdata, "lz"))
-        add_specific_angular_momentum!(data)
-    end
-
+function add_specific_angular_momentum!(data :: ParticleDataFrame, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat}
     x = data.dfdata.x
     y = data.dfdata.y
     z = data.dfdata.z
-    lx = data.dfdata.lx
-    ly = data.dfdata.ly
-    lz = data.dfdata.lz
-    l = data.dfdata.lnorm
-
-    tilt = _tilt(x, y, z, lx, ly, lz, l)
-    data.dfdata.tilt = tilt
-
+    vx = data.dfdata.vx
+    vy = data.dfdata.vy
+    vz = data.dfdata.vz
+    lx, ly, lz, l = _specific_angular_momentum((x, y, z), (vx, vy, vz), rref, vref)
+    data.dfdata.lx = lx
+    data.dfdata.ly = ly
+    data.dfdata.lz = lz
+    data.dfdata.lnorm = l
     return nothing
 end
-
