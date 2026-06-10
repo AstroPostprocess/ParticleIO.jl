@@ -3,7 +3,7 @@ The ParticleDataFrame data Structure
     by Wei-Shan Su,
     September 28, 2025
 
-Those methods with prefix `add` would store the result into the original data, and prefix `get` would return the value. 
+Those methods with prefix `add` would store the result into the original data, and prefix `get` would return the value.
 Becarful, the methods with suffix `!` would change the inner state of its first argument!
 """
 
@@ -82,7 +82,7 @@ end
     return ParticleDataFrame(prdf.dfdata[rows, :], prdf.params)
 end
 
-# All rows, all columns -> PRDF 
+# All rows, all columns -> PRDF
 @inline function Base.getindex(prdf::ParticleDataFrame, ::Colon, ::Colon)
     return ParticleDataFrame(prdf.dfdata[:, :], prdf.params)
 end
@@ -126,14 +126,14 @@ end
 
 # Other methods
 """
-    print_params(data::ParticleDataFrame, pause::Bool=false)
+    print_params(data :: ParticleDataFrame, pause::Bool=false)
 Print out the `params` dictionary.
 
 # Parameters
-- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 - `pause :: Bool=false`: Pause the program after printing.
 """
-function print_params(data::ParticleDataFrame, pause::Bool = false)
+function print_params(data :: ParticleDataFrame, pause::Bool = false)
     allkeys = sort(collect(keys(data.params)))
     @inbounds for key in allkeys
         println("$(key) => $(data.params[key])")
@@ -144,41 +144,41 @@ function print_params(data::ParticleDataFrame, pause::Bool = false)
 end
 
 """
-    @inline get_dim(data::ParticleDataFrame)
+    @inline get_dim(data :: ParticleDataFrame)
 Get the dimension of simulation.
 
 # Parameters
-- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 
 #Returns
 - 'Int64': The dimension of simulation of SPH data.
 """
-@inline function get_dim(data::ParticleDataFrame)
+@inline function get_dim(data :: ParticleDataFrame)
     return hasproperty(data.dfdata, "z") ? 3 : 2
 end
 
 """
-    @inline get_time(data::ParticleDataFrame)
+    @inline get_time(data :: ParticleDataFrame)
 Get the time of simulation in code unit.
 
 # Parameters
-- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 
 #Returns
 - 'Float64': The time of simulation.
 """
-@inline function get_time(data::ParticleDataFrame)
+@inline function get_time(data :: ParticleDataFrame)
     if haskey(data.params,:time)
         return data.params[:time]
     elseif haskey(data.params,:Time)
         return data.params[:Time]
     else
-        return 
+        return
     end
 end
 
 """
-    get_code_unit(data::ParticleDataFrame, ::Type{TF}=Float64) where {TF<:AbstractFloat}
+    get_code_unit(data :: ParticleDataFrame, ::Type{TF}=Float64) where {TF<:AbstractFloat}
 
 Extract Phantom code units from `data.params` and return them as a typed dictionary.
 
@@ -186,14 +186,14 @@ The function reads the required unit scalars `:udist`, `:umass`, `:utime`, and `
 from `data.params`, converts each value to `TF`, and returns a `Dict{Symbol,TF}`.
 
 # Parameters
-- `data::ParticleDataFrame`: Input particle dataset whose `params` stores code-unit scalars.
+- `data :: ParticleDataFrame`: Input particle dataset whose `params` stores code-unit scalars.
 - `::Type{TF}=Float64`: Target floating-point type used for the returned unit values.
 
 # Returns
 - `Dict{Symbol,TF}`: Dictionary containing the four required code units:
   `:umass`, `:udist`, `:utime`, `:umagfd`.
 """
-@inline function get_code_unit(data::ParticleDataFrame, :: Type{TF} = Float64) where {TF <: AbstractFloat}
+@inline function get_code_unit(data :: ParticleDataFrame, :: Type{TF} = Float64) where {TF <: AbstractFloat}
     udist = TF(data.params[:udist])
     umass = TF(data.params[:umass])
     utime = TF(data.params[:utime])
@@ -209,45 +209,45 @@ from `data.params`, converts each value to `TF`, and returns a `Dict{Symbol,TF}`
 end
 
 """
-    @inline get_npart(data::ParticleDataFrame)
+    @inline get_npart(data :: ParticleDataFrame)
 Get the number of particles in `data`.
 
 # Parameters
-- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 
 # Returns
 -`Int64`: The number of particles.
 """
-@inline function get_npart(data::ParticleDataFrame)
+@inline function get_npart(data :: ParticleDataFrame)
     return nrow(data.dfdata)
 end
 
 """
-    @inline get_init_npart(data::ParticleDataFrame)
+    @inline get_init_npart(data :: ParticleDataFrame)
 Get the number of particles in `data`.
 
 # Parameters
-- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 
 # Returns
 -`Int64`: The number of particles.
 """
-@inline function get_init_npart(data::ParticleDataFrame)
+@inline function get_init_npart(data :: ParticleDataFrame)
     itype = data.params[:itype]
     return data.params[Symbol(string("npartoftype", itype == 1 ? "" : string("_", itype), ))]
 end
 
 """
-    @inline get_unit_G(data::ParticleDataFrame)
+    @inline get_unit_G(data :: ParticleDataFrame)
 Get the Gravitational constant G in code unit.
 
 # Parameters
-- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame` 
+- `data :: ParticleDataFrame`: The SPH data that is stored in `ParticleDataFrame`
 
 # Returns
 -`Float64`: The Gravitational constant G in code unit.
 """
-@inline function get_unit_G(data::ParticleDataFrame) :: Float64
+@inline function get_unit_G(data :: ParticleDataFrame) :: Float64
     params = data.params
     udist = params[:udist]
     umass = params[:umass]

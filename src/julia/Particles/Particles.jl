@@ -27,7 +27,7 @@ Implemented in:
 - Supports statistical operations where appropriate
 
 Implemented in:
-- `add_quantities.jl`
+- `operations/*.jl`
 """
 module Particles
 
@@ -36,9 +36,20 @@ using DataFrames
 using Statistics
 using Partia.Tools: _cart2cylin, _vector_cart2cylin
 
-# ParticleDataFrame & basic adding quantities function
+# ParticleDataFrame & operations
 include(joinpath(@__DIR__, "ParticleDataFrame.jl"))
-include(joinpath(@__DIR__, "add_quantities.jl"))
+include(joinpath(@__DIR__, "operations", "distance_measurements.jl"))
+include(joinpath(@__DIR__, "operations", "coordinate_shift.jl"))
+include(joinpath(@__DIR__, "operations", "density.jl"))
+include(joinpath(@__DIR__, "operations", "norm.jl"))
+include(joinpath(@__DIR__, "operations", "kinetic_energy.jl"))
+include(joinpath(@__DIR__, "operations", "potential_energy.jl"))
+include(joinpath(@__DIR__, "operations", "bounded_flag.jl"))
+include(joinpath(@__DIR__, "operations", "cylindrical.jl"))
+include(joinpath(@__DIR__, "operations", "kepelarian_azimuthal_velocity.jl"))
+include(joinpath(@__DIR__, "operations", "kepelarian_angular_velocity.jl"))
+include(joinpath(@__DIR__, "operations", "eccentricity.jl"))
+include(joinpath(@__DIR__, "operations", "specific_angular_momentum.jl"))
 
 
 # Export function, marco, const...
