@@ -40,6 +40,7 @@ using Partia.Tools: _cart2cylin, _vector_cart2cylin
 include(joinpath(@__DIR__, "ParticleDataFrame.jl"))
 include(joinpath(@__DIR__, "operations", "distance_measurements.jl"))
 include(joinpath(@__DIR__, "operations", "coordinate_shift.jl"))
+include(joinpath(@__DIR__, "operations", "mass.jl"))
 include(joinpath(@__DIR__, "operations", "density.jl"))
 include(joinpath(@__DIR__, "operations", "norm.jl"))
 include(joinpath(@__DIR__, "operations", "kinetic_energy.jl"))
