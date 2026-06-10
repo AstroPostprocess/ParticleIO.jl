@@ -10,7 +10,8 @@ particle-side tabular data to `Partia.KernelInterpolation`.
 module PartiaAdapter
 
 using ParticleIO.Particles
-using Partia.KernelInterpolation: AbstractSPHKernel, M5_spline
+using Partia.KernelInterpolation: AbstractSPHKernel, M5_spline, build_input, CPUComputeBackend
+import Partia.KernelInterpolation: build_input
 
 include(joinpath(@__DIR__, "MassSource.jl"))
 include(joinpath(@__DIR__, "build_input.jl"))

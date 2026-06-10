@@ -57,8 +57,8 @@ function build_input(
         throw(ArgumentError("Missing columns in ParticleDataFrame: " * missing_list))
     end
 
-    return Partia.KernelInterpolation.build_input(
-        Partia.KernelInterpolation.CPUComputeBackend(),
+    return build_input(
+        CPUComputeBackend(),
         data[!, :x],
         data[!, :y],
         data[!, :z],
@@ -142,8 +142,8 @@ function build_input(
     N = get_npart(data)
     particle_mass = data.params[mass_from_params.name]
 
-    return Partia.KernelInterpolation.build_input(
-        Partia.KernelInterpolation.CPUComputeBackend(),
+    return build_input(
+        CPUComputeBackend(),
         data[!, :x],
         data[!, :y],
         data[!, :z],
