@@ -58,7 +58,6 @@ function build_input(
     end
 
     return build_input(
-        CPUComputeBackend(),
         data[!, :x],
         data[!, :y],
         data[!, :z],
@@ -143,7 +142,6 @@ function build_input(
     particle_mass = data.params[mass_from_params.name]
 
     return build_input(
-        CPUComputeBackend(),
         data[!, :x],
         data[!, :y],
         data[!, :z],
