@@ -1,6 +1,6 @@
 name = "ParticleIO"
 uuid = "a30016dd-37b7-45bf-ae3b-2ac9d2508733"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Wei-Shan Su <weishansu011017@gmail.com>"]
 
 [deps]
