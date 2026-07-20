@@ -6,14 +6,14 @@
 
 ## Installation
 
-Before installing `ParticleIO.jl`, ([`Partia.jl`](https://github.com/AstroPostprocess/Partia.jl)) is required. Please install ([`Partia.jl`](https://github.com/AstroPostprocess/Partia.jl)) first.
-
 `ParticleIO.jl` is not registered in the General registry. If you want to install it directly from this repository, use
 
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/AstroPostprocess/ParticleIO.jl")
 ```
+
+[`Partia.jl`](https://github.com/AstroPostprocess/Partia.jl) is an optional dependency. Install and load it only when constructing interpolation inputs.
 
 ## Reading Phantom dump files
 
@@ -91,7 +91,7 @@ COM2star!(data_list, 1)
 
 ## Building Partia inputs
 
-`ParticleIO.jl` also provides the `PartiaAdapter` layer, which constructs a `Partia` `InterpolationInput` and its corresponding `InterpolationCatalog` directly from a `ParticleDataFrame`.
+When both `ParticleIO.jl` and `Partia.jl` are loaded, the package extension adds methods that construct a Partia `InterpolationInput` and its corresponding `InterpolationCatalog` directly from a `ParticleDataFrame`.
 
 There are two supported mass sources:
 
@@ -102,10 +102,11 @@ For a dataset read directly from `read_phantom`, the usual path is to use the ma
 
 ```julia
 using ParticleIO
+using Partia
 
-data = read_phantom("dumpfile_00000", seperate_types="all")[1]
+data = read_phantom("dumpfile_00000"; separate_types = :all)[1]
 
-input, catalog = build_input(
+input, catalog = Partia.build_input(
     data,
     MassFromParams(:mass);
     scalars = (:u, :vx, :vy, :vz),
@@ -118,7 +119,7 @@ input, catalog = build_input(
 If the particle mass is instead stored explicitly in a particle column, use:
 
 ```julia
-input, catalog = build_input(
+input, catalog = Partia.build_input(
     data,
     MassFromColumn(:m);
     scalars = (:u,),

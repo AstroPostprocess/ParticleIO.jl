@@ -34,10 +34,10 @@ module Particles
 using Base.Threads
 using DataFrames
 using Statistics
-using Partia.Tools: _cart2cylin, _vector_cart2cylin
 
 # ParticleDataFrame & operations
 include(joinpath(@__DIR__, "ParticleDataFrame.jl"))
+include(joinpath(@__DIR__, "MassSource.jl"))
 include(joinpath(@__DIR__, "operations", "distance_measurements.jl"))
 include(joinpath(@__DIR__, "operations", "coordinate_shift.jl"))
 include(joinpath(@__DIR__, "operations", "mass.jl"))

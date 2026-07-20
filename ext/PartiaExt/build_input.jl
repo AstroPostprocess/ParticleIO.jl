@@ -41,7 +41,7 @@ the column specified by `mass_from_column.name`.
   3D interpolation catalog for the requested extra quantities.
 
 """
-function build_input(
+function Partia.build_input(
     data::ParticleDataFrame,
     mass_from_column::MassFromColumn;
     scalars::Tuple{Vararg{Symbol}} = (),
@@ -57,7 +57,7 @@ function build_input(
         throw(ArgumentError("Missing columns in ParticleDataFrame: " * missing_list))
     end
 
-    return build_input(
+    return Partia.build_input(
         data[!, :x],
         data[!, :y],
         data[!, :z],
@@ -119,7 +119,7 @@ The base interpolation fields are read from `data[:,:x]`, `data[:,:y]`,
   3D interpolation catalog for the requested extra quantities.
 
 """
-function build_input(
+function Partia.build_input(
     data::ParticleDataFrame,
     mass_from_params::MassFromParams;
     scalars::Tuple{Vararg{Symbol}} = (),
@@ -141,7 +141,7 @@ function build_input(
     N = get_npart(data)
     particle_mass = data.params[mass_from_params.name]
 
-    return build_input(
+    return Partia.build_input(
         data[!, :x],
         data[!, :y],
         data[!, :z],

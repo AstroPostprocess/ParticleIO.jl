@@ -1,4 +1,15 @@
 ### Cylindrical coordinate
+@inline function _cart2cylin(x::T, y::T) where {T<:AbstractFloat}
+    s = sqrt(x * x + y * y)
+    ϕ = mod(atan(y, x), T(2π))
+    return T(s), T(ϕ)
+end
+
+@inline function _vector_cart2cylin(ϕ::T, vx::T, vy::T) where {T<:AbstractFloat}
+    cosϕ, sinϕ = cos(ϕ), sin(ϕ)
+    return T(cosϕ * vx + sinϕ * vy), T(-sinϕ * vx + cosϕ * vy)
+end
+
 function _cylindrical(r :: NTuple{3, V}, v :: NTuple{3, V}, rref :: NTuple{3, TF}, vref :: NTuple{3, TF}) where {TF <: AbstractFloat, V <: AbstractVector{TF}}
     x, y, _ = r
     vx, vy, _ = v

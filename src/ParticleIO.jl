@@ -11,7 +11,7 @@ The module currently provides:
 
 - `Particles`: `ParticleDataFrame` and particle convenience operations
 - `IO`: Phantom dump-file reading utilities
-- `PartiaAdapter`: particle-to-interpolation adapters built on top of `Partia`
+- optional `Partia` integration for constructing interpolation inputs
 
 `ParticleIO` is intended to serve as the particle-data entry layer for workflows
 that eventually feed into `Partia`'s interpolation and analysis machinery.
@@ -29,10 +29,6 @@ include(joinpath(@__DIR__, "julia", "Particles", "Particles.jl"))
 ## Particle-side I/O
 include(joinpath(@__DIR__, "julia", "IO", "IO.jl"))
 @reexport using .IO
-
-## Adapters from particle containers to Partia interpolation inputs
-include(joinpath(@__DIR__, "julia", "PartiaAdapter", "PartiaAdapter.jl"))
-@reexport using .PartiaAdapter
 
 # Package metadata helpers.
 version() = pkgversion(@__MODULE__)
