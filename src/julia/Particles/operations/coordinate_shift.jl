@@ -74,7 +74,6 @@ star2COM!(prdf_list)
 println(prdf_list[1].params[:Origin_sink_id][])  # print: -1
 ```
 """
-
 function star2COM!(data_list :: V) where {D <: ParticleDataFrame, V <: AbstractVector{D}}
     COM_position = data_list[1].params[:COM_coordinate]
     new_origin = ntuple(i -> COM_position[i], 6)

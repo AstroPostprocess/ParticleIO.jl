@@ -1,9 +1,9 @@
 """
-    _read_particle_block_offset(io::IO, byte_offset, block_particle_counts, block_array_counts, ::Type{TI}, ::Type{TF})
+    _read_particle_block_offset(io::Base.IO, byte_offset, block_particle_counts, block_array_counts, ::Type{TI}, ::Type{TF})
 
 Read column names and record their data offsets while skipping particle values.
 """
-@inline function _read_particle_block_offset(io :: IO, byte_offset :: Integer, block_particle_counts :: Vector{Int64}, block_array_counts :: Vector{NTuple{8, Int32}}, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+@inline function _read_particle_block_offset(io :: Base.IO, byte_offset :: Integer, block_particle_counts :: Vector{Int64}, block_array_counts :: Vector{NTuple{8, Int32}}, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     length(block_particle_counts) == length(block_array_counts) || throw(DimensionMismatch("Particle counts and array counts contain different numbers of blocks."))
 
     # Allocate a reusable buffer for the 16 character column names

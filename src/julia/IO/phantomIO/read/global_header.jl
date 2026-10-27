@@ -2,6 +2,9 @@
     _rename_duplicates!(keys::Vector{String})
 
 Rename duplicate header keys in place by appending their occurrence number.
+
+Every occurrence of a repeated key is suffixed, including the first: `["mass", "mass"]` becomes
+`["mass_1", "mass_2"]`. Unique keys are unchanged. Return `nothing`.
 """
 function _rename_duplicates!(keys :: Vector{String})
     counts = Dict{String, Int}()
@@ -26,11 +29,11 @@ function _rename_duplicates!(keys :: Vector{String})
 end
 
 """
-    _read_global_header_block!(io::IO, buffers, ::Type{T})
+    _read_global_header_block!(io::Base.IO, buffers, ::Type{T})
 
 Read one typed Phantom global-header block and return its keys and values.
 """
-@inline function _read_global_header_block!(io :: IO, buffers :: NTuple{2, Vector{UInt8}}, :: Type{T}) where {T <: _PHANTOM_TYPE}
+@inline function _read_global_header_block!(io :: Base.IO, buffers :: NTuple{2, Vector{UInt8}}, :: Type{T}) where {T <: _PHANTOM_TYPE}
     # Allocate buffer for the variable count
     buffer = MVector{4, UInt8}(undef)
     buffer_keys = buffers[1]
@@ -73,11 +76,14 @@ Read one typed Phantom global-header block and return its keys and values.
 end
 
 """
-    _read_global_header(io::IO, byte_offset::Integer, ::Type{TI}, ::Type{TF})
+    _read_global_header(io::Base.IO, byte_offset::Integer, ::Type{TI}, ::Type{TF})
 
 Read all eight typed Phantom global-header blocks beginning at `byte_offset`.
+
+Return `(keys, data)`, two tuples in the order `(TI, Int8, Int16, Int32, Int64, TF, Float32, Float64)`.
+Repeated keys are numbered separately within each typed block by `_rename_duplicates!`.
 """
-@inline function _read_global_header(io :: IO, byte_offset :: Integer, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+@inline function _read_global_header(io :: Base.IO, byte_offset :: Integer, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     # Allocate buffers for keys and data
     buffers = ntuple(_ -> Vector{UInt8}(undef, 0), 2)
 

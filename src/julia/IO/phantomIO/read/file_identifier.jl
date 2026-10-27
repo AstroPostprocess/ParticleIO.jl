@@ -1,9 +1,9 @@
 """
-    _read_file_identifier(io::IO, byte_offset::Integer)
+    _read_file_identifier(io::Base.IO, byte_offset::Integer)
 
 Read the 100-character Phantom file identifier record at `byte_offset`.
 """
-@inline function _read_file_identifier(io :: IO, byte_offset :: Integer)
+@inline function _read_file_identifier(io :: Base.IO, byte_offset :: Integer)
     # Allocate buffer for data
     buffer = Vector{UInt8}(undef, 0)
 

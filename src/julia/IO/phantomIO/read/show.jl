@@ -1,16 +1,16 @@
 """
-    Base.show(io::IO, file::PhantomFile)
+    Base.show(io::Base.IO, file::PhantomFile)
 
 Print a compact one-line summary of an indexed Phantom dump file.
 
 # Parameters
-- `io::IO`: Output stream receiving the formatted summary.
+- `io::Base.IO`: Output stream receiving the formatted summary.
 - `file::PhantomFile`: Indexed Phantom dump file to display.
 
 # Returns
 - `Nothing`: The summary is written directly to `io`.
 """
-function Base.show(io :: IO, file :: PhantomFile{TI, TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function Base.show(io :: Base.IO, file :: PhantomFile{TI, TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     nblocks = length(file.blocks)
     ncolumns = sum(block -> length(block.columns), file.blocks)
 
@@ -22,7 +22,7 @@ function Base.show(io :: IO, file :: PhantomFile{TI, TF}) where {TI <: _PHANTOM_
 end
 
 """
-    Base.show(io::IO, ::MIME"text/plain", file::PhantomFile)
+    Base.show(io::Base.IO, ::MIME"text/plain", file::PhantomFile)
 
 Print a detailed, block-oriented summary of the columns available in an indexed Phantom dump file.
 
@@ -30,7 +30,7 @@ Each particle block displays its `block_index`, particle count, and a table cont
 datatype required to select a column with `read_column!`.
 
 # Parameters
-- `io::IO`: Output stream receiving the formatted summary.
+- `io::Base.IO`: Output stream receiving the formatted summary.
 - `MIME"text/plain"`: Plain-text display format used by the Julia REPL and compatible frontends.
 - `file::PhantomFile`: Indexed Phantom dump file to display.
 
@@ -40,7 +40,7 @@ datatype required to select a column with `read_column!`.
 # Notes
 This display uses only indexed metadata and never opens the dump file or loads particle values.
 """
-function Base.show(io :: IO, :: MIME"text/plain", file :: PhantomFile{TI, TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function Base.show(io :: Base.IO, :: MIME"text/plain", file :: PhantomFile{TI, TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     dtypes = phantom_dtypes(file)
     nblocks = length(file.blocks)
     ncolumns = sum(block -> length(block.columns), file.blocks)

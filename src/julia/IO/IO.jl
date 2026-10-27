@@ -24,11 +24,28 @@ module IO
 
 using .Threads
 using DataFrames
+using StaticArrays: MVector
 using ParticleIO.Particles
 
 
 # IO for data structure
 ## Read Phantom Binary dumpfiles
+# Data structures
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomHeaders.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomSectionOffsets.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomColumnInfo.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomBlockInfo.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomFile.jl"))
+
+# Binary readers
+include(joinpath(@__DIR__, "phantomIO", "read", "fortran_block.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "phantom_datatype.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "file_identifier.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "global_header.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "particle_block_metadata.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "particle_block_offset.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "column.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "show.jl"))
 include(joinpath(@__DIR__, "phantomIO", "read_phantom.jl"))
 
 # Export function, marco, const...

@@ -72,7 +72,9 @@ file.blocks[1].columns
 
 # Notes
 Particle-array values are not loaded by this constructor. Each `PhantomColumnInfo.data_record_offset` can be used for
-selective or deferred loading.
+selective or deferred loading. These offsets point to the leading Fortran record tag, not the first particle value.
+The filename is stored as supplied; if it is relative, subsequent reads must resolve it from the same working
+directory. The indexed file must remain unchanged between indexing and reading.
 """
 function PhantomFile(filename :: AbstractString)
     filename_string = String(filename)
@@ -90,11 +92,11 @@ function PhantomFile(filename :: AbstractString)
 end
 
 """
-    _build_phantom_file(io::IO, filename::String, ::Type{TI}, ::Type{TF})
+    _build_phantom_file(io::Base.IO, filename::String, ::Type{TI}, ::Type{TF})
 
 Build a `PhantomFile{TI,TF}` after its default datatypes have been detected.
 """
-function _build_phantom_file(io :: IO, filename :: String, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function _build_phantom_file(io :: Base.IO, filename :: String, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     # Capture pattern always starts at the beginning of the file
     capture_pattern_offset = Int64(0)
 
