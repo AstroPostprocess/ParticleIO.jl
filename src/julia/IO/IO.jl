@@ -14,22 +14,51 @@ public-facing functions for external use.
 # Included Components
 
 ## Phantom Binary I/O
-- Reading Phantom binary dump files
+- Reading and writing Phantom binary dump files
 
 Implemented in:
 - `phantomIO/read_phantom.jl`
+- `phantomIO/write_phantom.jl`
 
 """
 module IO
 
 using .Threads
 using DataFrames
+using StaticArrays: MVector
 using ParticleIO.Particles
 
 
 # IO for data structure
 ## Read Phantom Binary dumpfiles
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomHeaders.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomPartitionOffsets.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomSectionOffsets.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomColumnInfo.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomBlockInfo.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomPartition.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomFile.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomData.jl"))
+
+# Binary readers
+include(joinpath(@__DIR__, "phantomIO", "read", "fortran_block.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "phantom_datatype.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "file_identifier.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "global_header.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "particle_block_metadata.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "particle_block_offset.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "column.jl"))
+include(joinpath(@__DIR__, "phantomIO", "read", "show.jl"))
 include(joinpath(@__DIR__, "phantomIO", "read_phantom.jl"))
+
+# Binary writers
+include(joinpath(@__DIR__, "phantomIO", "write", "fortran_block.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write", "phantom_datatype.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write", "file_identifier.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write", "global_header.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write", "particle_block_metadata.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write", "column.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write_phantom.jl"))
 
 # Export function, marco, const...
 for name in filter(s -> !startswith(string(s), "#"), names(@__MODULE__, all = true))

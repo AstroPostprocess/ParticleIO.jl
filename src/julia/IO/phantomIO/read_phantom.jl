@@ -1,9 +1,36 @@
 """
+    _rename_duplicates!(keys::Vector{String})
+
+Rename duplicate header keys in place by appending their occurrence number.
+"""
+function _rename_duplicates!(keys :: Vector{String})
+    counts = Dict{String, Int}()
+
+    for key in keys
+        counts[key] = get(counts, key, 0) + 1
+    end
+
+    occurrences = Dict{String, Int}()
+
+    for i in eachindex(keys)
+        key = keys[i]
+
+        if counts[key] > 1
+            n = get(occurrences, key, 0) + 1
+            occurrences[key] = n
+            keys[i] = "$(key)_$(n)"
+        end
+    end
+
+    return nothing
+end
+
+"""
     _collect_header_params(file::PhantomFile)
 
 Collect typed Phantom headers and compatibility metadata into a parameter dictionary.
 """
-function _collect_header_params(file :: PhantomFile{TI, TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function _collect_header_params(file :: PhantomFile{P, B, C, TI, TF}) where {P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     header_blocks = (
         file.headers.default_integer,
         file.headers.int8,
@@ -17,8 +44,11 @@ function _collect_header_params(file :: PhantomFile{TI, TF}) where {TI <: _PHANT
 
     header_vars = Dict{Symbol, Any}()
     for header in header_blocks
-        for i in eachindex(header.keys, header.data)
-            header_vars[Symbol(header.keys[i])] = header.data[i]
+        # Rename a copy for lookup; preserve original names in the file model
+        keys = String[strip(key) for key in header.keys]
+        _rename_duplicates!(keys)
+        for i in eachindex(keys, header.data)
+            header_vars[Symbol(keys[i])] = header.data[i]
         end
     end
 
@@ -34,27 +64,20 @@ function _collect_header_params(file :: PhantomFile{TI, TF}) where {TI <: _PHANT
 end
 
 """
-    _merge_physical_blocks(block_data::Vector{DataFrame})
+    _merge_physical_blocks(partition::PhantomPartition, block_data::Tuple)
 
-Merge non-sink physical blocks and preserve the second physical block as sink data.
+Convert raw columns to analysis tables, merging non-sink blocks and preserving block 2 as sinks.
+Strip names only for table keys; later repeated names overwrite earlier columns as in the original reader.
 """
-function _merge_physical_blocks(block_data :: Vector{DataFrame})
+function _merge_physical_blocks(partition :: PhantomPartition, block_data :: Tuple)
     df = DataFrame()
     df_sinks = DataFrame()
-
-    for block_index in eachindex(block_data)
-        block = block_data[block_index]
-
-        # Preserve the original reader's assumption that block 2 contains sinks
-        if block_index == 2
-            df_sinks = block
-        else
-            for name in names(block)
-                df[!, name] = block[!, name]
-            end
+    for (b, block) in enumerate(partition.blocks)
+        target = b == 2 ? df_sinks : df
+        for (column, values) in zip(block.columns, block_data[b])
+            target[!, strip(column.name)] = values
         end
     end
-
     return df, df_sinks
 end
 
@@ -63,7 +86,7 @@ end
 
 Read data from a Phantom native binary dump file.
 
-The file is first indexed as a `PhantomFile`, then all particle columns are loaded with `read_all_columns`. Global
+The file is first indexed as a `PhantomFile`, then all particle columns are loaded with `read_data`. Global
 header values are stored in each returned `ParticleDataFrame.params` dictionary. The output and keyword behavior are
 compatible with the original Phantom reader while using the indexed column-reading implementation.
 
@@ -88,12 +111,18 @@ particle_types = read_phantom("dumpfile_00000"; separate_types = :all)
 ```
 
 # Notes
-The second physical particle block is treated as sink data to preserve the behavior of the original reader.
+The second array block of each partition is treated as sink data to preserve the behavior of the original reader.
 """
 function read_phantom(filename :: String; separate_types :: Symbol = :sinks, ignore_inactive :: Bool = true)
     file = PhantomFile(filename)
-    block_data = read_all_columns(file)
-    df, df_sinks = _merge_physical_blocks(block_data)
+    block_data = read_data(file)
+    per_partition = map(_merge_physical_blocks, file.partitions, block_data.partitions)
+    df = reduce((a, b) -> vcat(a, b; cols = :union), map(first, per_partition))
+    df_sinks = reduce((a, b) -> vcat(a, b; cols = :union), map(last, per_partition))
+    if length(per_partition) > 1
+        # MPI partitions repeat sink state; match complete rows rather than merging by position.
+        unique!(df_sinks)
+    end
     header_vars = _collect_header_params(file)
 
     # Ignore particles with negative smoothing length when requested

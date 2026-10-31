@@ -1,9 +1,9 @@
 """
-    _read_phantom_datatype(io::IO)
+    _read_phantom_datatype(io::Base.IO)
 
 Validate the Phantom capture pattern and detect its default integer and real datatypes.
 """
-@inline function _read_phantom_datatype(io :: IO)
+@inline function _read_phantom_datatype(io :: Base.IO)
     # Default real and int
     TI = Int32
     TF = Float32
@@ -14,6 +14,11 @@ Validate the Phantom capture pattern and detect its default integer and real dat
     # 4 byte Fortran tag
     ## +4
     nbytes = read(io, Int32)
+
+    # The four supported capture payload sizes are distinct. On little-endian files,
+    # the low 4 bytes of Int64(60769) also look like Int32(60769), so i1 alone is ambiguous.
+    nbytes in (20, 24, 36, 40) || throw(ArgumentError("Invalid capture-pattern byte count: $nbytes"))
+    TI = nbytes in (36, 40) ? Int64 : Int32
 
     # Test Integer
     # integer 1 == 060769

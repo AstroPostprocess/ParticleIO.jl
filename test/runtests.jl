@@ -16,3 +16,6 @@ using ParticleIO
 
 # 1. I/O layer --------------------------------------------------------------- #
 include("io_tests.jl")
+include("phantom_write_tests.jl")
+include("phantom_partition_tests.jl")
+include("phantom_data_tests.jl")

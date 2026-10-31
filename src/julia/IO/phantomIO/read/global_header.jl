@@ -1,36 +1,9 @@
 """
-    _rename_duplicates!(keys::Vector{String})
-
-Rename duplicate header keys in place by appending their occurrence number.
-"""
-function _rename_duplicates!(keys :: Vector{String})
-    counts = Dict{String, Int}()
-
-    for key in keys
-        counts[key] = get(counts, key, 0) + 1
-    end
-
-    occurrences = Dict{String, Int}()
-
-    for i in eachindex(keys)
-        key = keys[i]
-
-        if counts[key] > 1
-            n = get(occurrences, key, 0) + 1
-            occurrences[key] = n
-            keys[i] = "$(key)_$(n)"
-        end
-    end
-
-    return nothing
-end
-
-"""
-    _read_global_header_block!(io::IO, buffers, ::Type{T})
+    _read_global_header_block!(io::Base.IO, buffers, ::Type{T})
 
 Read one typed Phantom global-header block and return its keys and values.
 """
-@inline function _read_global_header_block!(io :: IO, buffers :: NTuple{2, Vector{UInt8}}, :: Type{T}) where {T <: _PHANTOM_TYPE}
+@inline function _read_global_header_block!(io :: Base.IO, buffers :: NTuple{2, Vector{UInt8}}, :: Type{T}) where {T <: _PHANTOM_TYPE}
     # Allocate buffer for the variable count
     buffer = MVector{4, UInt8}(undef)
     buffer_keys = buffers[1]
@@ -61,7 +34,7 @@ Read one typed Phantom global-header block and return its keys and values.
         # fill in values
         @inbounds for j in eachindex(keys)
             i = 16(j - 1) + 1
-            keys[j] = strip(String(@view buffer_keys[i:i+15]))
+            keys[j] = String(@view buffer_keys[i:i+15])
         end
         copyto!(data, reinterpret(T, buffer_data))
     end
@@ -73,11 +46,14 @@ Read one typed Phantom global-header block and return its keys and values.
 end
 
 """
-    _read_global_header(io::IO, byte_offset::Integer, ::Type{TI}, ::Type{TF})
+    _read_global_header(io::Base.IO, byte_offset::Integer, ::Type{TI}, ::Type{TF})
 
 Read all eight typed Phantom global-header blocks beginning at `byte_offset`.
+
+Return `(keys, data)` retaining original names and their order, including duplicates.
+Each name retains all 16 bytes, including whitespace. Strip padding and rename keys only when constructing analysis parameters.
 """
-@inline function _read_global_header(io :: IO, byte_offset :: Integer, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+@inline function _read_global_header(io :: Base.IO, byte_offset :: Integer, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     # Allocate buffers for keys and data
     buffers = ntuple(_ -> Vector{UInt8}(undef, 0), 2)
 
@@ -90,7 +66,6 @@ Read all eight typed Phantom global-header blocks beginning at `byte_offset`.
     # Run through all data types
     blocks = map(dtypes) do dtype
         keys, data = _read_global_header_block!(io, buffers, dtype)
-        _rename_duplicates!(keys)
         return keys, data
     end
     dtypes_keys = map(first, blocks)

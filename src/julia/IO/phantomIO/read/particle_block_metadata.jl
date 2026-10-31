@@ -1,21 +1,12 @@
 """
-    _read_particle_block_metadata(io::IO, byte_offset::Integer)
+    _read_particle_block_metadata(io::Base.IO, byte_offset::Integer, nblocks::Integer)
 
-Read particle counts and per-datatype array counts for every particle block.
+Read metadata for one partition with `nblocks` array blocks.
+The global total-count record is consumed separately by the file constructor.
 """
-@inline function _read_particle_block_metadata(io :: IO, byte_offset :: Integer)
-    # Allocate buffers for data
-    buffer = MVector{4, UInt8}(undef)
-
-    # Move the cursor to the position
+@inline function _read_particle_block_metadata(io :: Base.IO, byte_offset :: Integer, nblocks :: Integer)
+    0 <= nblocks <= 1_000_000 || throw(ArgumentError("Invalid array-block count: $nblocks"))
     seek(io, byte_offset)
-
-    # Read number of particle blocks
-    ## +12
-    _read_fortran_block!(io, buffer)
-    nblocks_raw = reinterpret(reshape, Int32, buffer)[]
-    0 <= nblocks_raw <= 1_000_000 || throw(ArgumentError("Invalid particle block count: $nblocks_raw"))
-    nblocks = Int(nblocks_raw)
 
     # Read the array header for each blocks
     block_particle_counts = zeros(Int64, nblocks)
@@ -45,7 +36,7 @@ Read particle counts and per-datatype array counts for every particle block.
         nbytes == end_nbytes || throw(ArgumentError("Fortran tags mismatch: leading tag is $nbytes, trailing tag is $end_nbytes."))
     end
 
-    ## Bytes consumed: 12 + 48nblocks
-    ## Current offset: byte_offset + 12 + 48nblocks
+    ## Bytes consumed: 48nblocks
+    ## Current offset: byte_offset + 48nblocks
     return block_particle_counts, block_array_counts
 end

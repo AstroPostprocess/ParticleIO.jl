@@ -1,9 +1,10 @@
 """
-    _read_particle_block_offset(io::IO, byte_offset, block_particle_counts, block_array_counts, ::Type{TI}, ::Type{TF})
+    _read_particle_block_offset(io::Base.IO, byte_offset, block_particle_counts, block_array_counts, ::Type{TI}, ::Type{TF})
 
 Read column names and record their data offsets while skipping particle values.
+Column names retain all 16 bytes, including leading and trailing whitespace.
 """
-@inline function _read_particle_block_offset(io :: IO, byte_offset :: Integer, block_particle_counts :: Vector{Int64}, block_array_counts :: Vector{NTuple{8, Int32}}, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+@inline function _read_particle_block_offset(io :: Base.IO, byte_offset :: Integer, block_particle_counts :: Vector{Int64}, block_array_counts :: Vector{NTuple{8, Int32}}, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     length(block_particle_counts) == length(block_array_counts) || throw(DimensionMismatch("Particle counts and array counts contain different numbers of blocks."))
 
     # Allocate a reusable buffer for the 16 character column names
@@ -40,7 +41,7 @@ Read column names and record their data offsets while skipping particle values.
                 # Read the 16 character column name record
                 ## +24 = 4 byte tag + 16 byte name + 4 byte tag
                 _read_fortran_block!(io, name_buffer)
-                name = strip(String(copy(name_buffer)))
+                name = String(copy(name_buffer))
 
                 # Save the offset of the leading tag for the column data record
                 data_record_offset = Int64(position(io))
@@ -75,7 +76,7 @@ Read column names and record their data offsets while skipping particle values.
         blocks[block_index] = PhantomBlockInfo(
             npart,
             array_counts,
-            columns,
+            Tuple(columns),
         )
     end
 

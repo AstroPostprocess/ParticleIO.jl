@@ -1,6 +1,7 @@
 const _PHANTOM_INT_TYPE = Union{Int32, Int64}
 const _PHANTOM_REAL_TYPE = Union{Float32, Float64}
 const _PHANTOM_TYPE = Union{Int8, Int16, Int32, Int64, Float32, Float64}
+const _PHANTOM_WRITE_TYPE = Union{Int8, Int16, Int32, Int64, Float32, Float64, UInt8}
 
 struct PhantomHeader{T <: _PHANTOM_TYPE}
     keys :: Vector{String}
