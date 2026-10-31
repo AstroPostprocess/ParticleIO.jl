@@ -1,9 +1,9 @@
 """
-    _read_particle_block_metadata(io::Base.IO, byte_offset::Integer)
+    _read_particle_block_metadata(io::IO, byte_offset::Integer)
 
 Read particle counts and per-datatype array counts for every particle block.
 """
-@inline function _read_particle_block_metadata(io :: Base.IO, byte_offset :: Integer)
+@inline function _read_particle_block_metadata(io :: IO, byte_offset :: Integer)
     # Allocate buffers for data
     buffer = MVector{4, UInt8}(undef)
 

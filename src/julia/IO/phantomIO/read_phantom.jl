@@ -37,9 +37,6 @@ end
     _merge_physical_blocks(block_data::Vector{DataFrame})
 
 Merge non-sink physical blocks and preserve the second physical block as sink data.
-
-Non-sink blocks are combined by assigning columns, not by appending rows. Later columns with the same name replace
-earlier ones; columns retained in the same table must have compatible lengths. Return `(df, df_sinks)`.
 """
 function _merge_physical_blocks(block_data :: Vector{DataFrame})
     df = DataFrame()
@@ -67,23 +64,20 @@ end
 Read data from a Phantom native binary dump file.
 
 The file is first indexed as a `PhantomFile`, then all particle columns are loaded with `read_all_columns`. Global
-header values are stored in each returned `ParticleDataFrame.params` dictionary.
+header values are stored in each returned `ParticleDataFrame.params` dictionary. The output and keyword behavior are
+compatible with the original Phantom reader while using the indexed column-reading implementation.
 
 # Parameters
 - `filename::String`: Path of the Phantom dump file to read.
 - `separate_types::Symbol = :sinks`: Particle separation mode. `:sinks` returns ordinary and sink particles separately,
-  when the sink table is nonempty. `:all` additionally groups ordinary particles by `itype` when that column contains
-  multiple distinct values. Any other symbol concatenates the merged ordinary table and sink table by rows, using
-  the union of their columns and filling absent values with `missing`.
-- `ignore_inactive::Bool = true`: Keep only ordinary particles with `h > 0`, excluding zero as well as negative
-  smoothing lengths. Sink particles are not filtered.
+  `:all` additionally separates ordinary particles by `itype`, and any other value combines all physical blocks.
+- `ignore_inactive::Bool = true`: Remove ordinary particles whose smoothing length `h` is negative.
 
 # Returns
-- `Vector{ParticleDataFrame}`: For `:sinks` or `:all`, ordinary particle table(s), followed by a sink table when
-  nonempty. Other symbols return a single combined table. A separate sink table is not guaranteed to be present.
+- `Vector{ParticleDataFrame}`: Loaded particle data frames in the same grouping order as the original reader.
 
 # Examples
-## Example 1: Separate ordinary particles and sinks in a dump containing sinks.
+## Example 1: Separate ordinary particles and sinks.
 ```julia
 particles, sinks = read_phantom("dumpfile_00000")
 ```
@@ -95,10 +89,6 @@ particle_types = read_phantom("dumpfile_00000"; separate_types = :all)
 
 # Notes
 The second physical particle block is treated as sink data to preserve the behavior of the original reader.
-Other physical blocks are merged by columns, with later same-name columns replacing earlier ones.
-When `:all` creates multiple type groups, columns containing any `missing` values are removed from each group.
-Only that grouping branch assigns a per-type `params[:mass]`; otherwise the ordinary or combined table stores
-`nothing` for `:mass`.
 """
 function read_phantom(filename :: String; separate_types :: Symbol = :sinks, ignore_inactive :: Bool = true)
     file = PhantomFile(filename)

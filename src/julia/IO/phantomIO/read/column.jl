@@ -1,9 +1,9 @@
 """
-    _read_column!(io::Base.IO, dest::Vector, file::PhantomFile, block_index::Integer, column_index::Integer)
+    _read_column!(io::IO, dest::Vector, file::PhantomFile, block_index::Integer, column_index::Integer)
 
 Read one indexed particle column from an open stream into a validated destination.
 """
-function _read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile, block_index :: Integer, column_index :: Integer)
+function _read_column!(io :: IO, dest :: Vector, file :: PhantomFile, block_index :: Integer, column_index :: Integer)
     block = file.blocks[block_index]
     column = block.columns[column_index]
     dtype = phantom_dtypes(file)[Int(column.dtype_index)]
@@ -25,17 +25,17 @@ function _read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile, block
 end
 
 """
-    read_column!(io::Base.IO, dest::Vector, file::PhantomFile, block_index::Integer, column_index::Integer)
+    read_column!(io::IO, dest::Vector, file::PhantomFile, block_index::Integer, column_index::Integer)
     read_column!(dest::Vector, file::PhantomFile, block_index::Integer, column_index::Integer)
 
-Read one particle column from an indexed Phantom dump file into a destination vector, which may initially be empty.
+Read one particle column from an indexed Phantom dump file into a preallocated destination.
 
 The method accepting an open `IO` stream leaves ownership of that stream with the caller and is intended for reading
 multiple columns without repeatedly opening the file. The convenience method without `IO` opens `file.filename` and
 closes it after the requested column has been read.
 
 # Parameters
-- `io::Base.IO`: Open and seekable stream associated with `file`.
+- `io::IO`: Open and seekable stream associated with `file`.
 - `dest::Vector`: Destination with the column's element type. Its length is resized to the block particle count.
 - `file::PhantomFile`: Indexed Phantom dump file.
 - `block_index::Integer`: Index of the particle block containing the column.
@@ -47,7 +47,6 @@ closes it after the requested column has been read.
 # Examples
 ## Example 1: Read one column with automatic file opening and closing.
 ```julia
-file = PhantomFile("test/testinput/testdumpfile_00000")
 block = file.blocks[1]
 column = block.columns[2]
 dtype = phantom_dtypes(file)[Int(column.dtype_index)]
@@ -58,26 +57,19 @@ read_column!(dest, file, 1, 2)
 
 ## Example 2: Reuse one open stream when reading multiple columns.
 ```julia
-file = PhantomFile("test/testinput/testdumpfile_00000")
-block = file.blocks[1]
-dtypes = phantom_dtypes(file)
-dest2 = Vector{dtypes[Int(block.columns[2].dtype_index)]}()
-dest3 = Vector{dtypes[Int(block.columns[3].dtype_index)]}()
-
 io = open(file.filename, "r")
 try
-    read_column!(io, dest2, file, 1, 2)
-    read_column!(io, dest3, file, 1, 3)
+    read_column!(io, x, file, 1, 2)
+    read_column!(io, y, file, 1, 3)
 finally
     close(io)
 end
 ```
 
 # Notes
-Indices are one-based. `dest` is resized and modified in place. Its element type must exactly match the indexed
-column metadata; values are not converted to another type. The stream overload changes the stream position.
+`dest` is resized and modified in place. Its element type must match the indexed column metadata.
 """
-function read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile, block_index :: Integer, column_index :: Integer)
+function read_column!(io :: IO, dest :: Vector, file :: PhantomFile, block_index :: Integer, column_index :: Integer)
     return _read_column!(
         io,
         dest,
@@ -104,11 +96,11 @@ function read_column!(dest :: Vector, file :: PhantomFile, block_index :: Intege
 end
 
 """
-    _read_columns!(io::Base.IO, dests::Tuple{Vararg{Vector,N}}, file::PhantomFile, block_index::Int, column_indices::NTuple{N,Int})
+    _read_columns!(io::IO, dests::Tuple{Vararg{Vector,N}}, file::PhantomFile, block_index::Int, column_indices::NTuple{N,Int})
 
 Read indexed particle columns into their corresponding destinations in the requested tuple order.
 """
-function _read_columns!(io :: Base.IO, dests :: Tuple{Vararg{Vector, N}}, file :: PhantomFile, block_index :: Int, column_indices :: NTuple{N, Int}) where {N}
+function _read_columns!(io :: IO, dests :: Tuple{Vararg{Vector, N}}, file :: PhantomFile, block_index :: Int, column_indices :: NTuple{N, Int}) where {N}
     for i in eachindex(dests, column_indices)
         _read_column!(io, dests[i], file, block_index, column_indices[i])
     end
@@ -117,17 +109,17 @@ function _read_columns!(io :: Base.IO, dests :: Tuple{Vararg{Vector, N}}, file :
 end
 
 """
-    read_columns!(io::Base.IO, dests::Tuple{Vararg{Vector,N}}, file::PhantomFile, block_index::Int, column_indices::NTuple{N,Int})
+    read_columns!(io::IO, dests::Tuple{Vararg{Vector,N}}, file::PhantomFile, block_index::Int, column_indices::NTuple{N,Int})
     read_columns!(dests::Tuple{Vararg{Vector,N}}, file::PhantomFile, block_index::Int, column_indices::NTuple{N,Int})
 
-Read multiple particle columns from one block into a tuple of destination vectors, which may initially be empty.
+Read multiple particle columns from one block into a tuple of preallocated destinations.
 
 Columns are read in the exact order specified by `column_indices`. For every tuple position `i`, values from
 `column_indices[i]` are written into `dests[i]`. The method accepting an open `IO` stream leaves ownership of that
 stream with the caller, while the convenience method opens and closes `file.filename` automatically.
 
 # Parameters
-- `io::Base.IO`: Open and seekable stream associated with `file`.
+- `io::IO`: Open and seekable stream associated with `file`.
 - `dests::Tuple{Vararg{Vector,N}}`: Destinations for the requested columns. Each vector may have a different element type.
 - `file::PhantomFile`: Indexed Phantom dump file.
 - `block_index::Int`: Index of the particle block containing the columns.
@@ -138,24 +130,18 @@ stream with the caller, while the convenience method opens and closes `file.file
 
 # Examples
 ```julia
-file = PhantomFile("test/testinput/testdumpfile_00000")
 block = file.blocks[1]
-dtypes = phantom_dtypes(file)
-column_indices = (4, 2)
-dests = map(column_indices) do i
-    Vector{dtypes[Int(block.columns[i].dtype_index)]}()
-end
+x = Float64[]
+z = Float64[]
 
-read_columns!(dests, file, 1, column_indices)
+read_columns!((z, x), file, 1, (4, 2))
 ```
 
 # Notes
 The destination and column-index tuples must have the same length `N`. Each destination's element type is validated
-independently and must match the column datatype exactly. Each vector is resized to the selected block's particle
-count. Indices are one-based. Use distinct destination vectors to retain each column's values. The stream overload
-changes the stream position. If a later column fails to read, earlier destinations may already have been modified.
+independently, and each vector is resized to the particle count of its corresponding block.
 """
-function read_columns!(io :: Base.IO, dests :: Tuple{Vararg{Vector, N}}, file :: PhantomFile, block_index :: Int, column_indices :: NTuple{N, Int}) where {N}
+function read_columns!(io :: IO, dests :: Tuple{Vararg{Vector, N}}, file :: PhantomFile, block_index :: Int, column_indices :: NTuple{N, Int}) where {N}
     return _read_columns!(io, dests, file, block_index, column_indices)
 end
 
@@ -170,11 +156,11 @@ function read_columns!(dests :: Tuple{Vararg{Vector, N}}, file :: PhantomFile, b
 end
 
 """
-    _read_all_columns(io::Base.IO, file::PhantomFile)
+    _read_all_columns(io::IO, file::PhantomFile)
 
 Read every indexed column from an open stream and return one `DataFrame` per physical particle block.
 """
-function _read_all_columns(io :: Base.IO, file :: PhantomFile)
+function _read_all_columns(io :: IO, file :: PhantomFile)
     block_data = Vector{DataFrame}(undef, length(file.blocks))
 
     for block_index in eachindex(file.blocks)
@@ -198,7 +184,7 @@ function _read_all_columns(io :: Base.IO, file :: PhantomFile)
 end
 
 """
-    read_all_columns(io::Base.IO, file::PhantomFile)
+    read_all_columns(io::IO, file::PhantomFile)
     read_all_columns(file::PhantomFile)
 
 Read all particle columns from an indexed Phantom dump file.
@@ -208,7 +194,7 @@ ownership of that stream with the caller. The convenience method opens `file.fil
 columns have been loaded.
 
 # Parameters
-- `io::Base.IO`: Open and seekable stream associated with `file`.
+- `io::IO`: Open and seekable stream associated with `file`.
 - `file::PhantomFile`: Indexed Phantom dump file.
 
 # Returns
@@ -218,16 +204,14 @@ columns have been loaded.
 ```julia
 file = PhantomFile("test/testinput/testdumpfile_00000")
 blocks = read_all_columns(file)
-first_block = blocks[1]
+gas = blocks[1]
+sinks = blocks[2]
 ```
 
 # Notes
-This function opens the file at most once. It returns raw physical blocks without filtering inactive particles,
-splitting particle types, or attaching header parameters. For those operations, use `read_phantom`.
-Columns with distinct names preserve their indexed order; a repeated name in the same block overwrites the earlier
-column in the returned `DataFrame`. The stream overload changes the stream position.
+This function opens the file at most once. Each returned data frame preserves the indexed column order.
 """
-function read_all_columns(io :: Base.IO, file :: PhantomFile)
+function read_all_columns(io :: IO, file :: PhantomFile)
     return _read_all_columns(io, file)
 end
 

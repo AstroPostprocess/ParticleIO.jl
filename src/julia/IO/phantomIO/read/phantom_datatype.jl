@@ -1,9 +1,9 @@
 """
-    _read_phantom_datatype(io::Base.IO)
+    _read_phantom_datatype(io::IO)
 
 Validate the Phantom capture pattern and detect its default integer and real datatypes.
 """
-@inline function _read_phantom_datatype(io :: Base.IO)
+@inline function _read_phantom_datatype(io :: IO)
     # Default real and int
     TI = Int32
     TF = Float32

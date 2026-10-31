@@ -1,34 +1,31 @@
 using StaticArrays
 using DataFrames
 
-# Keep this file usable as a standalone manual test entry point.
+# Temporary standalone definition used until the new reader is connected to the IO module
 if !isdefined(@__MODULE__, :ParticleDataFrame)
     include(joinpath(@__DIR__, "..", "..", "Particles", "ParticleDataFrame.jl"))
 end
 
-# Reuse imported definitions when ParticleIO is already loaded in this scope.
-if !isdefined(@__MODULE__, :PhantomFile)
-    # Data structures
-    include(joinpath(@__DIR__, "struct", "PhantomHeaders.jl"))
-    include(joinpath(@__DIR__, "struct", "PhantomSectionOffsets.jl"))
-    include(joinpath(@__DIR__, "struct", "PhantomColumnInfo.jl"))
-    include(joinpath(@__DIR__, "struct", "PhantomBlockInfo.jl"))
-    include(joinpath(@__DIR__, "struct", "PhantomFile.jl"))
+# Data structures
+include(joinpath(@__DIR__, "struct", "PhantomHeaders.jl"))
+include(joinpath(@__DIR__, "struct", "PhantomSectionOffsets.jl"))
+include(joinpath(@__DIR__, "struct", "PhantomColumnInfo.jl"))
+include(joinpath(@__DIR__, "struct", "PhantomBlockInfo.jl"))
+include(joinpath(@__DIR__, "struct", "PhantomFile.jl"))
 
-    # Binary readers
-    include(joinpath(@__DIR__, "read", "fortran_block.jl"))
-    include(joinpath(@__DIR__, "read", "phantom_datatype.jl"))
-    include(joinpath(@__DIR__, "read", "file_identifier.jl"))
-    include(joinpath(@__DIR__, "read", "global_header.jl"))
-    include(joinpath(@__DIR__, "read", "particle_block_metadata.jl"))
-    include(joinpath(@__DIR__, "read", "particle_block_offset.jl"))
-    include(joinpath(@__DIR__, "read", "column.jl"))
-    include(joinpath(@__DIR__, "read", "show.jl"))
-    include(joinpath(@__DIR__, "read_phantom.jl"))
-end
+# Binary readers
+include(joinpath(@__DIR__, "read", "fortran_block.jl"))
+include(joinpath(@__DIR__, "read", "phantom_datatype.jl"))
+include(joinpath(@__DIR__, "read", "file_identifier.jl"))
+include(joinpath(@__DIR__, "read", "global_header.jl"))
+include(joinpath(@__DIR__, "read", "particle_block_metadata.jl"))
+include(joinpath(@__DIR__, "read", "particle_block_offset.jl"))
+include(joinpath(@__DIR__, "read", "column.jl"))
+include(joinpath(@__DIR__, "read", "show.jl"))
+include(joinpath(@__DIR__, "read_phantom.jl"))
 
 
-# Manual test entry point (not executed when loading the package).
+# Temporary test entry point
 filename = normpath(joinpath(
     @__DIR__,
     "..",
