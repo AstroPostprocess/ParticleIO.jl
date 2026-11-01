@@ -5,13 +5,13 @@ Particle vectors for one block, sharing its `PhantomBlockInfo`. `dtypes` is the 
 returned by `phantom_dtypes(file)`. Each repeated-name group is a tuple of vectors;
 its members may have different element types. Counts, types, and lengths are checked.
 """
-struct PhantomBlockData{CS, CR}
-    columns       :: NTuple{CS, Vector}
-    column_groups :: NTuple{CR, Tuple}
-    metadata      :: PhantomBlockInfo{CS, CR}
+struct PhantomBlockData{S, R}
+    columns       :: NTuple{S, Vector}
+    column_groups :: NTuple{R, Tuple}
+    metadata      :: PhantomBlockInfo{S, R}
 
-    function PhantomBlockData(metadata :: PhantomBlockInfo{CS, CR}, columns :: NTuple{CS, Vector},
-        column_groups :: NTuple{CR, Tuple}, dtypes :: Tuple) where {CS, CR}
+    function PhantomBlockData(metadata :: PhantomBlockInfo{S, R}, columns :: NTuple{S, Vector},
+        column_groups :: NTuple{R, Tuple}, dtypes :: Tuple) where {S, R}
         for (column, values) in zip(metadata.columns, columns)
             _validate_column_vector(values, column.dtype_index, metadata.npart, dtypes)
         end
@@ -21,7 +21,7 @@ struct PhantomBlockData{CS, CR}
                 _validate_column_vector(values, index, metadata.npart, dtypes)
             end
         end
-        return new{CS, CR}(columns, column_groups, metadata)
+        return new{S, R}(columns, column_groups, metadata)
     end
 end
 

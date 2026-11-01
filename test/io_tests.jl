@@ -58,6 +58,13 @@ using ParticleIO
             expected = grouped_fixture(path, TI, TF)
             indexed = PhantomFile(path)
             @test indexed isa PhantomFile{2, 4, (8, 1, 0, 0), (2, 1, 0, 1), TI, TF}
+            header = indexed.headers.default_integer
+            @test header.keys == [rpad("nblocks", 16)]
+            @test header.content == TI[2]
+            @test header.group_keys == rpad.(["counts", "flags"], 16)
+            @test header.group_content == Tuple[(TI(11), TI(12)), (TI(21), TI(22))]
+            @test header.group_lengths == [2, 2]
+            @test header.group_content isa Vector{Tuple}
             dest = allocate_data(indexed)
             @test dest.metadata === indexed
             refs = all_vectors(dest)
@@ -132,7 +139,7 @@ using ParticleIO
                 @test_throws ArgumentError read_block!(IOBuffer(), gas, different.partitions[1].blocks[1], phantom_dtypes(indexed))
                 @test_throws MethodError PhantomPartitionData(indexed.partitions[1], Base.front(dest.partitions[1].blocks))
 
-                # CS/CR can match while a repeated group's member count differs across partitions.
+                # S/R can match while a repeated group's member count differs across partitions.
                 info2 = indexed.partitions[2].blocks[1]
                 group = info2.column_groups[1]
                 longer = PhantomColumnGroupInfo(group.name, (group.dtype_indices..., UInt8(6)),

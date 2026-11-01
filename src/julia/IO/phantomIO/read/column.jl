@@ -102,7 +102,7 @@ Fill a block's single and repeated vectors using `read_column!`. Counts match by
 metadata must be the shared source object. Vectors are resized in place and the stream stays open.
 Supply distinct destination vectors for distinct columns.
 """
-function read_block!(io :: Base.IO, dest :: PhantomBlockData{CS, CR}, info :: PhantomBlockInfo{CS, CR}, dtypes :: Tuple) where {CS, CR}
+function read_block!(io :: Base.IO, dest :: PhantomBlockData{S, R}, info :: PhantomBlockInfo{S, R}, dtypes :: Tuple) where {S, R}
     dest.metadata === info || throw(ArgumentError("Destination block metadata does not match source"))
     for (column, values) in zip(info.columns, dest.columns)
         read_column!(io, values, column, info.npart, dtypes)
@@ -147,7 +147,7 @@ Fill all preallocated vectors using the shared `dest.metadata` file index. Vecto
 not replaced. The stream overload leaves `io` open; the other opens and closes the indexed source.
 The stream must contain the dump described by the metadata, including its record offsets.
 """
-function read_data!(io :: Base.IO, dest :: PhantomData{P, B, CS, CR}, file :: PhantomFile{P, B, CS, CR}) where {P, B, CS, CR}
+function read_data!(io :: Base.IO, dest :: PhantomData{P, B, S, R}, file :: PhantomFile{P, B, S, R}) where {P, B, S, R}
     dest.metadata === file || throw(ArgumentError("Destination file metadata does not match source"))
     dtypes = phantom_dtypes(file)
     for (partition, info) in zip(dest.partitions, file.partitions)

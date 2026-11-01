@@ -30,7 +30,7 @@ end
 
 Collect typed Phantom headers and compatibility metadata into a parameter dictionary.
 """
-function _collect_header_params(file :: PhantomFile{P, B, CS, CR, TI, TF}) where {P, B, CS, CR, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function _collect_header_params(file :: PhantomFile{P, B, S, R, TI, TF}) where {P, B, S, R, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     header_blocks = (
         file.headers.default_integer,
         file.headers.int8,
@@ -45,10 +45,11 @@ function _collect_header_params(file :: PhantomFile{P, B, CS, CR, TI, TF}) where
     header_vars = Dict{Symbol, Any}()
     for header in header_blocks
         # Rename a copy for lookup; preserve original names in the file model
-        keys = String[strip(key) for key in header.keys]
+        entries = collect(_header_entries(header))
+        keys = String[strip(key) for (key, _) in entries]
         _rename_duplicates!(keys)
-        for i in eachindex(keys, header.data)
-            header_vars[Symbol(keys[i])] = header.data[i]
+        for i in eachindex(keys)
+            header_vars[Symbol(keys[i])] = entries[i][2]
         end
     end
 

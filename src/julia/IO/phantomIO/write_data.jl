@@ -3,7 +3,7 @@
 
 Validate the metadata and nested column vectors before any output is modified.
 """
-function _validate_phantom_output(file :: PhantomFile{P, B, CS, CR}, data :: PhantomData{P, B, CS, CR}) where {P, B, CS, CR}
+function _validate_phantom_output(file :: PhantomFile{P, B, S, R}, data :: PhantomData{P, B, S, R}) where {P, B, S, R}
     data.metadata === file || throw(ArgumentError("Data must share the supplied file metadata"))
     _phantom_partition_count(file.headers) == P || throw(ArgumentError("Header nblocks does not match partition count"))
     Int128(B) * P <= 1_000_000 || throw(ArgumentError("Too many particle blocks"))
@@ -24,7 +24,7 @@ function _validate_phantom_output(file :: PhantomFile{P, B, CS, CR}, data :: Pha
     return nothing
 end
 
-function _write_data(io :: Base.IO, file :: PhantomFile{P, B, CS, CR, TI, TF}, data :: PhantomData{P, B, CS, CR}, identifier :: String) where {P, B, CS, CR, TI, TF}
+function _write_data(io :: Base.IO, file :: PhantomFile{P, B, S, R, TI, TF}, data :: PhantomData{P, B, S, R}, identifier :: String) where {P, B, S, R, TI, TF}
     _write_capture_pattern(io, TI, TF)
     _write_file_identifier(io, position(io), identifier)
     _write_global_header(io, file.headers)
@@ -41,8 +41,8 @@ function _write_data(io :: Base.IO, file :: PhantomFile{P, B, CS, CR, TI, TF}, d
 end
 
 """
-    write_data(io::Base.IO, file::PhantomFile{P,B,CS,CR}, data::PhantomData{P,B,CS,CR})
-    write_data(filename::AbstractString, file::PhantomFile{P,B,CS,CR}, data::PhantomData{P,B,CS,CR}; overwrite=false)
+    write_data(io::Base.IO, file::PhantomFile{P,B,S,R}, data::PhantomData{P,B,S,R})
+    write_data(filename::AbstractString, file::PhantomFile{P,B,S,R}, data::PhantomData{P,B,S,R}; overwrite=false)
 
 Write a Phantom binary dump using metadata from `file` and vectors from `data`.
 Omit `file` to use `data.metadata`.
@@ -62,7 +62,7 @@ data = read_data(file)
 write_data("output.dump", file, data)
 ```
 """
-function write_data(io :: Base.IO, file :: PhantomFile{P, B, CS, CR}, block_data :: PhantomData{P, B, CS, CR}) where {P, B, CS, CR}
+function write_data(io :: Base.IO, file :: PhantomFile{P, B, S, R}, block_data :: PhantomData{P, B, S, R}) where {P, B, S, R}
     _validate_phantom_output(file, block_data)
     identifier = _particleio_file_identifier()
     position(io) == 0 && eof(io) || throw(ArgumentError("Output stream must be empty and positioned at zero"))
@@ -70,7 +70,7 @@ function write_data(io :: Base.IO, file :: PhantomFile{P, B, CS, CR}, block_data
     return nothing
 end
 
-function write_data(filename :: AbstractString, file :: PhantomFile{P, B, CS, CR}, block_data :: PhantomData{P, B, CS, CR}; overwrite :: Bool = false) where {P, B, CS, CR}
+function write_data(filename :: AbstractString, file :: PhantomFile{P, B, S, R}, block_data :: PhantomData{P, B, S, R}; overwrite :: Bool = false) where {P, B, S, R}
     _validate_phantom_output(file, block_data)
     identifier = _particleio_file_identifier()
     target = abspath(filename)

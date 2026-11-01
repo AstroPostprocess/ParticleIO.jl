@@ -37,10 +37,12 @@ function grouped_fixture(path, TI, TF; P = 2, empty_particles = false)
         fixture_record(io, take!(capture))
         fixture_record(io, collect(codeunits(rpad("FT:independent-fixture", 100))))
         for group in 1:8
-            fixture_record(io, Int32[group == 1 ? 1 : 0])
+            fixture_record(io, Int32[group == 1 ? 5 : 0])
             if group == 1
-                fixture_record(io, collect(codeunits(rpad("nblocks", 16))))
-                fixture_record(io, TI[P])
+                # Interleave two repeated names with a single partition count.
+                names = ("counts", "flags", "nblocks", "counts", "flags")
+                fixture_record(io, collect(codeunits(join(rpad.(names, 16)))))
+                fixture_record(io, TI[11, 21, P, 12, 22])
             end
         end
         fixture_record(io, Int32[4P])
@@ -103,7 +105,10 @@ function check_readback(source, source_data, restored, restored_data)
         expected = getfield(source.headers, field)
         actual = getfield(restored.headers, field)
         @test actual.keys == expected.keys
-        @test isequal(actual.data, expected.data)
+        @test isequal(actual.content, expected.content)
+        @test actual.group_keys == expected.group_keys
+        @test isequal(actual.group_content, expected.group_content)
+        @test actual.group_lengths == expected.group_lengths
     end
     for p in eachindex(source.partitions)
         @test restored_data.partitions[p].metadata === restored.partitions[p]

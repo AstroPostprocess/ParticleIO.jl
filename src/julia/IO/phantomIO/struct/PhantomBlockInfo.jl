@@ -1,18 +1,18 @@
 """
     PhantomBlockInfo(npart, array_counts, columns, column_groups)
 
-Immutable block metadata. `CS` counts single columns; `CR` counts repeated-name groups.
+Immutable block metadata. `S` counts single columns; `R` counts repeated-name groups.
 Names are compared exactly, including padding. Group members retain their file occurrence order.
 """
-struct PhantomBlockInfo{CS, CR}
+struct PhantomBlockInfo{S, R}
     npart         :: Int64
     array_counts  :: NTuple{8, Int32}
-    columns       :: NTuple{CS, PhantomColumnInfo}
-    column_groups :: NTuple{CR, PhantomColumnGroupInfo}
+    columns       :: NTuple{S, PhantomColumnInfo}
+    column_groups :: NTuple{R, PhantomColumnGroupInfo}
 
     function PhantomBlockInfo(npart :: Integer, array_counts :: NTuple{8, Int32},
-        columns :: NTuple{CS, PhantomColumnInfo},
-        column_groups :: NTuple{CR, PhantomColumnGroupInfo}) where {CS, CR}
+        columns :: NTuple{S, PhantomColumnInfo},
+        column_groups :: NTuple{R, PhantomColumnGroupInfo}) where {S, R}
         npart >= 0 || throw(ArgumentError("Negative particle count"))
         all(n -> n >= 0, array_counts) || throw(ArgumentError("Negative array count"))
         names = (map(column -> column.name, columns)..., map(group -> group.name, column_groups)...)
@@ -29,10 +29,10 @@ struct PhantomBlockInfo{CS, CR}
             1 <= dtype_index <= 8 || throw(ArgumentError("Invalid group datatype index"))
             actual[Int(dtype_index)] += 1
         end
-        ncolumns = CS + sum(group -> length(group.dtype_indices), column_groups; init = 0)
+        ncolumns = S + sum(group -> length(group.dtype_indices), column_groups; init = 0)
         ncolumns == sum(Int64, array_counts) || throw(DimensionMismatch("Column count does not match block metadata"))
         Tuple(actual) == array_counts || throw(DimensionMismatch("Column datatype counts do not match array_counts"))
-        return new{CS, CR}(npart, array_counts, columns, column_groups)
+        return new{S, R}(npart, array_counts, columns, column_groups)
     end
 end
 

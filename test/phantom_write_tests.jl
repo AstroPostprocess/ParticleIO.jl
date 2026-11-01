@@ -55,6 +55,19 @@ using ParticleIO
                 restored = PhantomFile(target)
                 restored_data = read_data(restored)
                 check_readback(original, original_data, restored, restored_data)
+                # Inspect the native header records: singles first, then each repeated group.
+                open(target, "r") do io
+                    seek(io, restored.sections.global_header)
+                    @test read(io, Int32) == 4
+                    @test read(io, Int32) == 5
+                    @test read(io, Int32) == 4
+                    @test read(io, Int32) == 80
+                    @test String(read(io, 80)) == join(rpad.(("nblocks", "counts", "counts", "flags", "flags"), 16))
+                    @test read(io, Int32) == 80
+                    @test read(io, Int32) == 5sizeof(TI)
+                    @test read!(io, Vector{TI}(undef, 5)) == TI[2, 11, 12, 21, 22]
+                    @test read(io, Int32) == 5sizeof(TI)
+                end
                 @test isequal(physical_records(target, restored), expected)
                 file, data = restored, restored_data
             end
@@ -73,6 +86,16 @@ using ParticleIO
 
             # Validate mutable vector lengths before creating or replacing output.
             before = read(target)
+            header = fresh.headers.default_integer
+            header.group_lengths[1] += 1
+            @test_throws DimensionMismatch write_data(target, fresh, values; overwrite = true)
+            @test read(target) == before
+            header.group_lengths[1] -= 1
+            saved_group = header.group_content[1]
+            header.group_content[1] = ("invalid", "values")
+            @test_throws ArgumentError write_data(target, fresh, values; overwrite = true)
+            @test read(target) == before
+            header.group_content[1] = saved_group
             resize!(values.partitions[1].blocks[1].column_groups[1][1], 0)
             @test_throws DimensionMismatch write_data(target, fresh, values; overwrite = true)
             @test read(target) == before
