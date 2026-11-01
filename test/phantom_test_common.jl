@@ -15,7 +15,7 @@ function fixture_record(io, values)
     write(io, nbytes)
 end
 
-function grouped_fixture(path, TI, TF; P = 2, empty_particles = false)
+function grouped_fixture(path, TI, TF; P = 2, empty_particles = false, identifier = "FT:independent-fixture")
     dtypes = (TI, Int8, Int16, Int32, Int64, TF, Float32, Float64)
     expected = ntuple(P) do p
         n = empty_particles ? 0 : p + 2
@@ -35,7 +35,7 @@ function grouped_fixture(path, TI, TF; P = 2, empty_particles = false)
         capture = IOBuffer()
         write(capture, TI(60769), TF(60878), TI(60878), TI(1), TI(690706))
         fixture_record(io, take!(capture))
-        fixture_record(io, collect(codeunits(rpad("FT:independent-fixture", 100))))
+        fixture_record(io, collect(codeunits(rpad(identifier, 100))))
         for group in 1:8
             fixture_record(io, Int32[group == 1 ? 5 : 0])
             if group == 1
@@ -128,8 +128,10 @@ function check_readback(source, source_data, restored, restored_data)
             @test isequal(readback.column_groups, values.column_groups)
         end
     end
-    @test startswith(restored.file_identifier, "FT:Phantom:ParticleIO:$(ParticleIO.version()): ")
-    @test !occursin(r"[()]", restored.file_identifier)
+    tags = isempty(source.file_tags) ? "" : " (" * join(string.(source.file_tags), '+') * ")"
+    @test startswith(restored.file_identifier, "FT:Phantom:ParticleIO:$(ParticleIO.version())$tags: ")
+    @test restored.file_tags == source.file_tags
+    isempty(source.file_tags) && @test !occursin(r"[()]", restored.file_identifier)
     @test ncodeunits(restored.file_identifier) == 100
 end
 
@@ -145,7 +147,7 @@ function without_offsets(file, data)
         end
         PhantomPartitionInfo(blocks)
     end
-    fresh = PhantomFile("not-a-source-file", file.file_identifier, file.headers, file.sections, partitions)
+    fresh = PhantomFile("not-a-source-file", file.file_identifier, file.headers, file.sections, partitions; file_tags = copy(file.file_tags))
     dtypes = phantom_dtypes(fresh)
     contents = map(partitions, data.partitions) do partition, source
         blocks = map(partition.blocks, source.blocks) do metadata, original

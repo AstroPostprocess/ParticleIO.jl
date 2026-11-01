@@ -20,6 +20,8 @@ are stored separately in `PhantomData`, loaded through `read_data(file)`.
   Stored as supplied, without conversion to an absolute path.
 - `file_identifier :: String` : File identifier. File indexing preserves the full 100-byte payload,
   including whitespace padding.
+- `file_tags :: Vector{Symbol}` : Ordered physics tags, independent of the original identifier.
+  Parsed when reading a file; optional and empty by default for programmatic construction.
 - `headers :: PhantomHeaders{TI, TF}` : Eight typed global-header blocks, separating single values
   from repeated-name tuples while preserving raw names and member order within each tuple.
 - `sections :: PhantomSectionOffsets{P}` : Absolute, zero-based byte offsets for the capture pattern,
@@ -33,7 +35,8 @@ are stored separately in `PhantomData`, loaded through `read_data(file)`.
 Partition and block counts are fixed by tuple storage. Column metadata are also tuples;
 Construction checks their lengths against `S` and `R`, and schemas across partitions.
 Particle counts may differ between partitions.
-The struct is immutable, but the vectors inside its header groups remain mutable.
+The struct is immutable, but `file_tags` and the vectors inside its header groups remain mutable.
+Use `push!`, `empty!`, or `append!` to edit tags without changing the original identifier.
 
 `TI` and `TF` describe only the default datatype groups. Use `phantom_dtypes(file)` together
 with a column's `dtype_index` to resolve its actual element type.
@@ -41,11 +44,12 @@ with a column's `dtype_index` to resolve its actual element type.
 struct PhantomFile{P, B, S, R, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     filename        :: String
     file_identifier :: String
+    file_tags       :: Vector{Symbol}
     headers         :: PhantomHeaders{TI, TF}
     sections        :: PhantomSectionOffsets{P}
     partitions      :: NTuple{P, PhantomPartitionInfo{B}}
 
-    function PhantomFile{P, B, S, R, TI, TF}(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}) where {P, B, S, R, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+    function PhantomFile{P, B, S, R, TI, TF}(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}; file_tags :: Vector{Symbol} = Symbol[]) where {P, B, S, R, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
         P > 0 || throw(ArgumentError("At least one partition is required"))
         S isa Tuple && R isa Tuple || throw(ArgumentError("S and R must be tuples"))
         length(S) == length(R) == B || throw(DimensionMismatch("Block counts do not match S and R"))
@@ -60,12 +64,12 @@ struct PhantomFile{P, B, S, R, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE
                 map(g -> (g.name, g.dtype_indices), block.column_groups) == map(g -> (g.name, g.dtype_indices), expected.column_groups) ||
                 throw(ArgumentError("Corresponding partition blocks must share names, group sizes, and datatypes"))
         end
-        return new{P, B, S, R, TI, TF}(filename, identifier, headers, sections, partitions)
+        return new{P, B, S, R, TI, TF}(filename, identifier, file_tags, headers, sections, partitions)
     end
 end
 
 """
-    PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}})
+    PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}; file_tags=Symbol[])
 
 Construct a file index from existing metadata without opening or reading a file.
 
@@ -75,6 +79,7 @@ Construct a file index from existing metadata without opening or reading a file.
 - `headers :: PhantomHeaders{TI, TF}` : Typed global-header groups.
 - `sections :: PhantomSectionOffsets{P}` : Global and per-partition byte offsets.
 - `partitions :: NTuple{P, PhantomPartitionInfo{B}}` : Ordered block and column metadata.
+- `file_tags :: Vector{Symbol}` : Optional physics tags; not inferred from the identifier or other metadata.
 
 # Returns
 - `PhantomFile{P, B, S, R, TI, TF}` : Index with `S` and `R` inferred from the first partition.
@@ -83,11 +88,11 @@ Construct a file index from existing metadata without opening or reading a file.
 Every partition must have the same per-block column counts. Metadata are retained without
 deep copying; this constructor does not verify that offsets or header values describe the source file.
 """
-function PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}) where {P, B, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}; file_tags :: Vector{Symbol} = Symbol[]) where {P, B, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     P > 0 || throw(ArgumentError("At least one partition is required"))
     singles = map(block -> length(block.columns), first(partitions).blocks)
     groups = map(block -> length(block.column_groups), first(partitions).blocks)
-    return PhantomFile{P, B, singles, groups, TI, TF}(filename, identifier, headers, sections, partitions)
+    return PhantomFile{P, B, singles, groups, TI, TF}(filename, identifier, headers, sections, partitions; file_tags)
 end
 
 """
@@ -139,7 +144,7 @@ Open and index a Phantom native binary dump file without loading its particle-ar
 
 The constructor validates the capture pattern and Fortran record tags, reads the file identifier and typed global
 headers, and records the name, datatype, and data offset of every particle column. The file is closed before the
-constructed object is returned.
+constructed object is returned. Physics tags are parsed from the identifier without changing its raw bytes.
 
 # Parameters
 - `filename::AbstractString`: Path of the Phantom dump file to index.
@@ -263,5 +268,5 @@ function _index_phantom_partitions(io :: Base.IO, filename :: String, identifier
     end
     partitions = map(first, indexed)
     sections = PhantomSectionOffsets{P}(capture_offset, identifier_offset, header_offset, map(last, indexed))
-    return PhantomFile(filename, identifier, headers, sections, partitions)
+    return PhantomFile(filename, identifier, headers, sections, partitions; file_tags = _parse_file_tags(identifier))
 end

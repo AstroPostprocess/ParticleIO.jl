@@ -41,44 +41,54 @@ function _write_data(io :: Base.IO, file :: PhantomFile{P, B, S, R, TI, TF}, dat
 end
 
 """
-    write_data(io::Base.IO, file::PhantomFile{P,B,S,R}, data::PhantomData{P,B,S,R})
-    write_data(filename::AbstractString, file::PhantomFile{P,B,S,R}, data::PhantomData{P,B,S,R}; overwrite=false)
+    write_data(io::Base.IO, data::PhantomData)
+    write_data(filename::AbstractString, data::PhantomData; overwrite=false)
 
-Write a Phantom binary dump using metadata from `file` and vectors from `data`.
-Omit `file` to use `data.metadata`.
-Data must share `file`; vector types and lengths are checked before writing. Original offsets
-restore physical column order. Without usable offsets, datatype groups are written in order,
-with singles followed by repeated groups within each datatype. Group member order is preserved;
-metadata whose group order conflicts with datatype order cannot be serialized.
-Headers are written as supplied, with a new `FT:Phantom:ParticleIO:<version>: <timestamp>` identifier.
+Write a Phantom binary dump using the metadata and particle vectors stored in `data`.
+
+Vector types and lengths are validated before writing. Original offsets restore
+the physical column order. Without usable offsets, datatype groups are written
+in order, with singles followed by repeated groups within each datatype.
+Group member order is preserved; metadata whose group order conflicts with
+datatype order cannot be serialized.
+
+Headers are written as supplied. A new `FT:Phantom:ParticleIO:<version> (tags): <timestamp>`
+identifier uses the current `data.metadata.file_tags`; empty tags omit the parentheses.
+The original `file_identifier` remains unchanged.
 
 The stream must be empty and positioned at zero; it is left open. The path overload
 writes through a temporary file and requires `overwrite=true` to replace an existing file.
-Returns `nothing`; reopen the output with `PhantomFile` to obtain its offsets.
+Both methods return `nothing`; reopen the output with `PhantomFile` to obtain its offsets.
 
-```julia
-file = PhantomFile("input.dump")
-data = read_data(file)
-write_data("output.dump", file, data)
-```
+# Parameters
+- `io::Base.IO`: Output stream.
+- `filename::AbstractString`: Output file path.
+- `data::PhantomData`: Particle data and associated metadata to write.
+
+# Keyword Arguments
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `overwrite::Bool` | `false` | Whether to replace an existing output file. |
 """
-function write_data(io :: Base.IO, file :: PhantomFile{P, B, S, R}, block_data :: PhantomData{P, B, S, R}) where {P, B, S, R}
-    _validate_phantom_output(file, block_data)
-    identifier = _particleio_file_identifier()
+function write_data(io :: Base.IO, data :: PhantomData)
+    file = data.metadata
+    _validate_phantom_output(file, data)
+    identifier = _particleio_file_identifier(file.file_tags)
     position(io) == 0 && eof(io) || throw(ArgumentError("Output stream must be empty and positioned at zero"))
-    _write_data(io, file, block_data, identifier)
+    _write_data(io, file, data, identifier)
     return nothing
 end
 
-function write_data(filename :: AbstractString, file :: PhantomFile{P, B, S, R}, block_data :: PhantomData{P, B, S, R}; overwrite :: Bool = false) where {P, B, S, R}
-    _validate_phantom_output(file, block_data)
-    identifier = _particleio_file_identifier()
+function write_data(filename :: AbstractString, data :: PhantomData; overwrite :: Bool = false)
+    file = data.metadata
+    _validate_phantom_output(file, data)
+    identifier = _particleio_file_identifier(file.file_tags)
     target = abspath(filename)
     isdir(target) && throw(ArgumentError("Output path is a directory"))
     ispath(target) && !overwrite && throw(ArgumentError("Output exists; pass overwrite=true to replace it"))
     temporary, io = mktemp(dirname(target))
     try
-        _write_data(io, file, block_data, identifier)
+        _write_data(io, file, data, identifier)
         close(io)
         mv(temporary, target; force = overwrite)
     finally
@@ -87,7 +97,3 @@ function write_data(filename :: AbstractString, file :: PhantomFile{P, B, S, R},
     end
     return nothing
 end
-
-# The data hierarchy already holds its source metadata.
-write_data(io :: Base.IO, data :: PhantomData) = write_data(io, data.metadata, data)
-write_data(filename :: AbstractString, data :: PhantomData; overwrite :: Bool = false) = write_data(filename, data.metadata, data; overwrite)

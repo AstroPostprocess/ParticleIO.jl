@@ -53,6 +53,27 @@ using ParticleIO
 
     # 4. Independent grouped dumps exercise all default datatypes and MPI partitions.
     mktempdir() do dir
+        # Physics tags come only from a valid parenthesized list, never from version or time.
+        cases = (("(hydro)", [:hydro]),
+                 ("(hydro+dust)", [:hydro, :dust]),
+                 ("(hydro+grav+dust)", [:hydro, :grav, :dust]),
+                 ("(hydro+1dust+H2chem)", [:hydro, Symbol("1dust"), :H2chem]),
+                 ("(mhd+clean+grav+dust)", [:mhd, :clean, :grav, :dust]),
+                 ("( hydro + CustomTag + hydro )", [:hydro, :CustomTag, :hydro]),
+                 ("", Symbol[]), ("()", Symbol[]), ("(hydro+)", Symbol[]),
+                 ("(hydro++dust)", Symbol[]), ("((hydro))", Symbol[]), ("(hydro", Symbol[]))
+        for (tag_text, tags) in cases
+            identifier = "FT:Phantom:1.4.0:8f94cb0 $tag_text: 11/05/2023 03:29:35.3"
+            path = joinpath(dir, "tags.dump")
+            grouped_fixture(path, Int32, Float64; identifier)
+            tagged = PhantomFile(path)
+            @test tagged.file_tags == tags
+            @test tagged.file_tags isa Vector{Symbol}
+            @test tagged.file_identifier == rpad(identifier, 100)
+            push!(tagged.file_tags, :dustgrowth)
+            @test tagged.file_identifier == rpad(identifier, 100)
+        end
+
         for TI in (Int32, Int64), TF in (Float32, Float64)
             path = joinpath(dir, "grouped.dump")
             expected = grouped_fixture(path, TI, TF)
@@ -111,6 +132,11 @@ using ParticleIO
             @test_throws ArgumentError PhantomData(different, dest.partitions)
             unbacked = PhantomFile("missing.dump", indexed.file_identifier, indexed.headers, indexed.sections, indexed.partitions)
             @test allocate_data(unbacked).metadata === unbacked
+            @test isempty(unbacked.file_tags)
+            explicit = typeof(indexed)("", indexed.file_identifier, indexed.headers, indexed.sections, indexed.partitions;
+                file_tags = [:hydro, Symbol("1dust")])
+            @test explicit.file_tags == [:hydro, Symbol("1dust")]
+            @test isempty(typeof(indexed)("", indexed.file_identifier, indexed.headers, indexed.sections, indexed.partitions).file_tags)
 
             if TI == Int32 && TF == Float64
                 # Invalid metadata cannot enter a destination or reach the binary writer.

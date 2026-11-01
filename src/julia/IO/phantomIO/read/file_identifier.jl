@@ -25,3 +25,12 @@ Use `rstrip` on the returned value when a display without trailing padding is de
     ## Current offset: byte_offset + 108
     return file_identifier
 end
+
+"""Parse the parenthesized physics tags, preserving case and order; malformed or absent lists are empty."""
+function _parse_file_tags(identifier :: AbstractString)
+    matched = match(r"^[^()\r\n]*\(([^()\r\n]*)\)(?:\s*:|\s*$)", identifier)
+    isnothing(matched) && return Symbol[]
+    names = strip.(split(matched.captures[1], '+'; keepempty = true))
+    any(name -> isempty(name) || any(iscntrl, name), names) && return Symbol[]
+    return Symbol.(names)
+end
