@@ -1,29 +1,121 @@
 """
-    read_column!(io::Base.IO, dest::Vector, file::PhantomFile, partition_index, block_index, column_index)
-    read_column!(dest::Vector, file::PhantomFile, partition_index, block_index, column_index)
+    allocate_dest(file::PhantomFile, p::Integer, b::Integer)
 
-Read one indexed column into `dest`, resized to the selected block's particle count.
-`column_index` is the physical on-disk index across singles and repeated groups, reconstructed from offsets.
-The destination element type must exactly match the indexed datatype. All indices are one-based.
-The stream overload changes its position and leaves it open; otherwise the source is opened and closed automatically.
-For single-partition files only, the partition index may be omitted.
+Allocate empty destination vectors for a specified block in a Phantom binary dump.
+
+The destination contains two tuples: one for single-column vectors and another for
+repeated-column groups. Each vector has the element type specified by the file metadata
+and is initially empty. No particle data are read.
+
+# Parameters
+- `file::PhantomFile`: Indexed Phantom file providing the column structure and datatypes.
+- `p::Integer`: One-based partition index.
+- `b::Integer`: One-based block index within the selected partition.
+
+# Returns
+- `Tuple`: A pair of tuples containing the single-column vectors and repeated-column groups.
 """
-function read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile,
-    partition_index :: Integer, block_index :: Integer, column_index :: Integer)
-    block = file.partitions[partition_index].blocks[block_index]
-    location = _physical_column_locations(block)[column_index]
-    column = _column_info(block, location)
-    return read_column!(io, dest, column, block.npart, phantom_dtypes(file))
+function allocate_dest(file :: PhantomFile, p :: Integer, b :: Integer)
+    info = file.partitions[p].blocks[b]
+    dtypes = phantom_dtypes(file)
+
+    columns = map(info.columns) do column
+        Vector{dtypes[Int(column.dtype_index)]}()
+    end
+
+    groups = map(info.column_groups) do group
+        map(index -> Vector{dtypes[Int(index)]}(), group.dtype_indices)
+    end
+
+    return (columns, groups)
 end
 
-# Shared binary core for singles, repeated groups, and physical-column selection.
-function read_column!(io :: Base.IO, dest :: Vector, column :: PhantomColumnInfo, npart :: Integer, dtypes :: Tuple)
-    T = dtypes[Int(column.dtype_index)]
-    eltype(dest) === T || throw(ArgumentError("Column $(column.name) requires destination element type $T"))
-    npart >= 0 || throw(ArgumentError("Negative particle count"))
+"""
+    allocate_dest(file::PhantomFile{P,B}, p::Integer) where {P,B}
+
+Allocate empty destination vectors for all blocks in a specified Phantom partition.
+
+Each block destination contains separate tuples for single-column vectors and
+repeated-column groups. All vectors are initially empty and use the element types
+specified by the file metadata. No particle data are read.
+
+# Parameters
+- `file::PhantomFile`: Indexed Phantom file providing the block structures and datatypes.
+- `p::Integer`: One-based partition index.
+
+# Returns
+- `Tuple`: A tuple containing the destination structures of all blocks in the selected partition.
+"""
+function allocate_dest(file :: PhantomFile{P,B}, p :: Integer) where {P,B}
+    return ntuple(b -> allocate_dest(file, p, b), Val(B))
+end
+
+
+"""
+    allocate_dest(file::PhantomFile{P}) where {P}
+
+Allocate empty destination vectors for all partitions and blocks in a Phantom binary dump.
+
+The destination consists of nested tuples containing single-column vectors and
+repeated-column groups. Each vector has the element type specified by the file
+metadata and is initially empty. No particle data are read.
+
+# Parameters
+- `file::PhantomFile`: Indexed Phantom file providing the partition, block, and column structures.
+
+# Returns
+- `Tuple`: Nested destination tuples containing empty vectors for all particle columns.
+"""
+function allocate_dest(file :: PhantomFile{P}) where {P}
+    return ntuple(p -> allocate_dest(file, p), Val(P))
+end
+
+
+"""
+    read_column!(io::Base.IO, dest::Vector, file::PhantomFile, p::Integer, b::Integer, c::Integer)
+    read_column!(dest::Vector, file::PhantomFile, p::Integer, b::Integer, c::Integer)
+    read_column!(io::Base.IO, dest::Vector, file::PhantomFile{1}, b::Integer, c::Integer)
+    read_column!(dest::Vector, file::PhantomFile{1}, b::Integer, c::Integer)
+
+Read a single particle column from a Phantom binary dump into an existing vector.
+
+The column is selected by its physical order within the block, including single columns
+and members of repeated-name groups. The destination element type must match the
+column datatype, while its length is automatically adjusted to the particle count
+specified by the file metadata.
+
+When an input stream is provided, the function reads from that stream and leaves it open.
+Otherwise, the source file is opened and closed automatically. The partition index can
+be omitted for files containing exactly one partition.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `dest::Vector`: Destination vector for the column data.
+- `file::PhantomFile`: Indexed Phantom file providing the column metadata and byte offsets.
+- `p::Integer`: One-based partition index.
+- `b::Integer`: One-based block index within the selected partition.
+- `c::Integer`: One-based physical column index within the selected block.
+
+# Returns
+- `Vector`: The resized and populated destination vector `dest`.
+"""
+function read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile, p :: Integer, b :: Integer, c :: Integer)
+    block = file.partitions[p].blocks[b]
+    location = _physical_column_locations(block)[c]
+    column = _column_info(block, location)
+
+    T = phantom_dtypes(file)[Int(column.dtype_index)]
+    eltype(dest) === T || throw(ArgumentError("Column $(column.name) requires Vector{$T}"))
+    block.npart >= 0 || throw(ArgumentError("Negative particle count"))
     column.data_record_offset >= 0 || throw(ArgumentError("Column has no readable source offset"))
+
+    return _read_column!(io, dest, column.data_record_offset, block.npart)
+end
+
+# Read a binary column using previously validated metadata.
+@inline function _read_column!(io :: Base.IO, dest :: Vector, offset :: Int64, npart :: Int64)
     resize!(dest, Int(npart))
-    seek(io, column.data_record_offset)
+    seek(io, offset)
     _read_fortran_block!(io, dest)
     return dest
 end
@@ -34,145 +126,315 @@ function read_column!(dest :: Vector, file :: PhantomFile, p :: Integer, b :: In
     end
 end
 
-# Unambiguous convenience methods for files with exactly one partition.
-read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile{1}, b :: Integer, c :: Integer) =
-    read_column!(io, dest, file, 1, b, c)
-read_column!(dest :: Vector, file :: PhantomFile{1}, b :: Integer, c :: Integer) =
-    read_column!(dest, file, 1, b, c)
+# Convenience methods for single-partition files.
+read_column!(io :: Base.IO, dest :: Vector, file :: PhantomFile{1}, b :: Integer, c :: Integer) = read_column!(io, dest, file, 1, b, c)
+read_column!(dest :: Vector, file :: PhantomFile{1}, b :: Integer, c :: Integer) = read_column!(dest, file, 1, b, c)
 
-# Retain the internal entry point for existing low-level callers.
-_read_column!(args...) = read_column!(args...)
 
 """
-    read_columns!(io::Base.IO, dests::Tuple, file::PhantomFile, partition_index, block_index, column_indices::Tuple)
-    read_columns!(dests::Tuple, file::PhantomFile, partition_index, block_index, column_indices::Tuple)
+    read_columns!(io::Base.IO, dests::NTuple{K,Vector}, file::PhantomFile, p::Integer, b::Integer, indices::NTuple{K,Int}) where {K}
+    read_columns!(dests::NTuple{K,Vector}, file::PhantomFile, p::Integer, b::Integer, indices::NTuple{K,Int}) where {K}
+    read_columns!(io::Base.IO, dests::NTuple{K,Vector}, file::PhantomFile{1}, b::Integer, indices::NTuple{K,Int}) where {K}
+    read_columns!(dests::NTuple{K,Vector}, file::PhantomFile{1}, b::Integer, indices::NTuple{K,Int}) where {K}
 
-Read selected columns from one partition and block in the requested order.
-Each destination must have the exact column element type; tuples must have equal lengths.
-Use distinct destination vectors. A later failure may leave earlier destinations modified.
-The partition index may be omitted only for a single-partition file.
+Read multiple selected particle columns from a Phantom binary dump into existing vectors.
+
+Columns are selected by their physical indices and read in the order specified by
+`indices`. The destination structure and element types are validated before reading.
+Each vector is resized to match the particle count specified by the file metadata,
+regardless of its initial length.
+
+Each destination vector should be distinct. An I/O error may leave previously
+processed vectors modified.
+
+When an input stream is provided, the function reads from that stream and leaves it open.
+Otherwise, the source file is opened and closed automatically. The partition index can
+be omitted for files containing exactly one partition.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `dests::NTuple{K,Vector}`: Destination vectors corresponding to the selected columns.
+- `file::PhantomFile`: Indexed Phantom file providing the column metadata and byte offsets.
+- `p::Integer`: One-based partition index.
+- `b::Integer`: One-based block index within the selected partition.
+- `indices::NTuple{K,Int}`: One-based physical column indices specifying the columns to read.
+
+# Returns
+- `NTuple{K,Vector}`: The destination tuple `dests`, containing the resized and populated vectors.
 """
-function read_columns!(io :: Base.IO, dests :: Tuple{Vararg{Vector, K}}, file :: PhantomFile,
-    p :: Integer, b :: Integer, indices :: NTuple{K, Int}) where {K}
-    for i in eachindex(dests, indices)
-        read_column!(io, dests[i], file, p, b, indices[i])
+function read_columns!(io :: Base.IO, dests :: NTuple{K,Vector}, file :: PhantomFile, p :: Integer, b :: Integer, indices :: NTuple{K,Int}) where {K}
+    block = file.partitions[p].blocks[b]
+    locations = _physical_column_locations(block)
+    columns = map(i -> _column_info(block, locations[i]), indices)
+    dtypes = phantom_dtypes(file)
+
+    # Validate all destinations before reading.
+    block.npart >= 0 || throw(ArgumentError("Negative particle count"))
+
+    for (column, values) in zip(columns, dests)
+        T = dtypes[Int(column.dtype_index)]
+        eltype(values) === T || throw(ArgumentError("Column $(column.name) requires Vector{$T}"))
+        column.data_record_offset >= 0 || throw(ArgumentError("Column $(column.name) has no readable source offset"))
     end
+
+    # Read selected columns.
+    for (column, values) in zip(columns, dests)
+        _read_column!(io, values, column.data_record_offset, block.npart)
+    end
+
     return dests
 end
 
-function read_columns!(dests :: Tuple{Vararg{Vector, K}}, file :: PhantomFile,
-    p :: Integer, b :: Integer, indices :: NTuple{K, Int}) where {K}
+function read_columns!(dests :: NTuple{K,Vector}, file :: PhantomFile, p :: Integer, b :: Integer, indices :: NTuple{K,Int}) where {K}
     open(file.filename, "r") do io
         read_columns!(io, dests, file, p, b, indices)
     end
 end
 
-read_columns!(io :: Base.IO, dests :: Tuple, file :: PhantomFile{1}, b :: Integer, indices :: Tuple) =
-    read_columns!(io, dests, file, 1, b, indices)
-read_columns!(dests :: Tuple, file :: PhantomFile{1}, b :: Integer, indices :: Tuple) =
-    read_columns!(dests, file, 1, b, indices)
+# Convenience methods for single-partition files.
+read_columns!(io :: Base.IO, dests :: NTuple{K,Vector}, file :: PhantomFile{1}, b :: Integer, indices :: NTuple{K,Int}) where {K} = read_columns!(io, dests, file, 1, b, indices)
+read_columns!(dests :: NTuple{K,Vector}, file :: PhantomFile{1}, b :: Integer, indices :: NTuple{K,Int}) where {K} = read_columns!(dests, file, 1, b, indices)
+
 
 """
-    allocate_data(file::PhantomFile)
+    read_block!(io::Base.IO, dests::Tuple{NTuple{N,Vector},NTuple{M,Tuple}}, file::PhantomFile, p::Integer, b::Integer) where {N,M}
 
-Allocate uninitialized particle vectors and share metadata at every level. No file is opened.
-Use `read_data!(io, data)` or `read_data!(data)` to fill the vectors without replacing them.
+Read all particle columns from a specified Phantom block into existing destination vectors.
+
+The destination consists of two tuples containing single-column vectors and repeated-column
+groups, respectively. Its structure, element types, and column offsets are validated
+against the file metadata before reading. Each vector is resized to match the particle
+count specified by the file, regardless of its initial length.
+
+The function returns a `PhantomBlockData` containing the populated destination vectors
+and their corresponding metadata without copying the particle data. The input stream
+remains open.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `dests::Tuple{NTuple{N,Vector},NTuple{M,Tuple}}`: Destination containing `N` single-column vectors and `M` repeated-column groups.
+- `file::PhantomFile`: Indexed Phantom file providing the block structure, datatypes, particle count, and byte offsets.
+- `p::Integer`: One-based partition index.
+- `b::Integer`: One-based block index within the selected partition.
+
+# Returns
+- `PhantomBlockData{N,M}`: Populated block data sharing the destination vectors and corresponding metadata.
 """
-function allocate_data(file :: PhantomFile{P, B}) where {P, B}
+function read_block!(io :: Base.IO, dests :: Tuple{NTuple{N,Vector},NTuple{M,Tuple}}, file :: PhantomFile, p :: Integer, b :: Integer) where {N,M}
+    info = file.partitions[p].blocks[b]
     dtypes = phantom_dtypes(file)
-    partitions = ntuple(Val(P)) do p
-        info = file.partitions[p]
-        blocks = map(info.blocks) do block
-            columns = map(column -> Vector{dtypes[Int(column.dtype_index)]}(undef, block.npart), block.columns)
-            groups = map(block.column_groups) do group
-                map(index -> Vector{dtypes[Int(index)]}(undef, block.npart), group.dtype_indices)
-            end
-            PhantomBlockData(block, columns, groups, dtypes)
-        end
-        PhantomPartitionData(info, blocks)
+    columns, groups = dests
+
+    # Validate the block structure.
+    N == length(info.columns) || throw(DimensionMismatch("Single-column count mismatch"))
+    M == length(info.column_groups) || throw(DimensionMismatch("Column-group count mismatch"))
+    info.npart >= 0 || throw(ArgumentError("Negative particle count"))
+
+    # Validate single-column destinations.
+    for (column, values) in zip(info.columns, columns)
+        T = dtypes[Int(column.dtype_index)]
+        eltype(values) === T || throw(ArgumentError("Column $(column.name) requires Vector{$T}"))
+        column.data_record_offset >= 0 || throw(ArgumentError("Column $(column.name) has no readable source offset"))
     end
+
+    # Validate repeated-column destinations.
+    for (group, vectors) in zip(info.column_groups, groups)
+        length(vectors) == length(group.dtype_indices) || throw(DimensionMismatch("Column group $(group.name) size mismatch"))
+
+        for (values, dtype_index, offset) in zip(vectors, group.dtype_indices, group.data_record_offsets)
+            values isa Vector || throw(ArgumentError("Column group $(group.name) requires Vector destinations"))
+
+            T = dtypes[Int(dtype_index)]
+            eltype(values) === T || throw(ArgumentError("Column group $(group.name) requires Vector{$T}"))
+            offset >= 0 || throw(ArgumentError("Column group $(group.name) has no readable source offset"))
+        end
+    end
+
+    # Read single columns.
+    for (column, values) in zip(info.columns, columns)
+        _read_column!(io, values, column.data_record_offset, info.npart)
+    end
+
+    # Read repeated columns.
+    for (group, vectors) in zip(info.column_groups, groups)
+        for (values, offset) in zip(vectors, group.data_record_offsets)
+            _read_column!(io, values, offset, info.npart)
+        end
+    end
+
+    return PhantomBlockData(info, columns, groups, dtypes)
+end
+
+
+"""
+    read_block(io::Base.IO, file::PhantomFile, p::Integer, b::Integer)
+    read_block(file::PhantomFile, p::Integer, b::Integer)
+
+Allocate and read all particle columns from a specified block in a Phantom binary dump.
+
+Destination vectors are allocated using `allocate_dest` according to the column structure
+and datatypes specified by the file metadata, then populated using `read_block!`.
+The resulting `PhantomBlockData` contains the particle vectors and their corresponding
+metadata without additional copies.
+
+When an input stream is provided, the function reads from that stream and leaves it open.
+Otherwise, the source file is opened and closed automatically.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `file::PhantomFile`: Indexed Phantom file providing the block structure, datatypes, particle count, and byte offsets.
+- `p::Integer`: One-based partition index.
+- `b::Integer`: One-based block index within the selected partition.
+
+# Returns
+- `PhantomBlockData`: The allocated and populated block data with its corresponding metadata.
+"""
+function read_block(io :: Base.IO, file :: PhantomFile, p :: Integer, b :: Integer)
+    dests = allocate_dest(file, p, b)
+    return read_block!(io, dests, file, p, b)
+end
+
+function read_block(file :: PhantomFile, p :: Integer, b :: Integer)
+    open(file.filename, "r") do io
+        read_block(io, file, p, b)
+    end
+end
+
+
+"""
+    read_partition!(io::Base.IO, dests::NTuple{B,Tuple}, file::PhantomFile{P,B}, p::Integer) where {P,B}
+
+Read all particle blocks from a specified Phantom partition into existing destination vectors.
+
+Each destination contains two tuples of single-column vectors and repeated-column groups,
+respectively. The number of block destinations is matched to the file by method dispatch,
+while their internal structures and element types are validated by `read_block!`.
+Destination vectors are resized to match the corresponding particle counts.
+
+The function returns a `PhantomPartitionData` containing the populated block data and
+their corresponding metadata without copying the particle arrays. The input stream
+remains open. An error during reading may leave previously processed blocks modified.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `dests::NTuple{B,Tuple}`: Tuple of destination structures for the `B` blocks, matched by dispatch.
+- `file::PhantomFile`: Indexed Phantom file providing the partition structure, datatypes, particle counts, and byte offsets.
+- `p::Integer`: One-based partition index.
+
+# Returns
+- `PhantomPartitionData{B}`: Populated partition data containing the block data and corresponding metadata.
+"""
+function read_partition!(io :: Base.IO, dests :: NTuple{B,Tuple}, file :: PhantomFile{P,B}, p :: Integer) where {P,B}
+    info = file.partitions[p]
+
+    blocks = ntuple(Val(B)) do b
+        read_block!(io, dests[b], file, p, b)
+    end
+
+    return PhantomPartitionData(info, blocks)
+end
+
+"""
+    read_partition(io::Base.IO, file::PhantomFile, p::Integer)
+    read_partition(file::PhantomFile, p::Integer)
+
+Allocate and read all particle blocks from a specified partition in a Phantom binary dump.
+
+Destination vectors are allocated using `allocate_dest` according to the block structures
+and datatypes specified by the file metadata, then populated using `read_partition!`.
+The resulting `PhantomPartitionData` contains the particle vectors and their corresponding
+metadata without additional copies.
+
+When an input stream is provided, the function reads from that stream and leaves it open.
+Otherwise, the source file is opened and closed automatically.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `file::PhantomFile`: Indexed Phantom file providing the partition structure, datatypes, particle counts, and byte offsets.
+- `p::Integer`: One-based partition index.
+
+# Returns
+- `PhantomPartitionData`: The allocated and populated partition data with its corresponding metadata.
+"""
+function read_partition(io :: Base.IO, file :: PhantomFile, p :: Integer)
+    dests = allocate_dest(file, p)
+    return read_partition!(io, dests, file, p)
+end
+
+function read_partition(file :: PhantomFile, p :: Integer)
+    open(file.filename, "r") do io
+        read_partition(io, file, p)
+    end
+end
+
+
+"""
+    read_data!(io::Base.IO, dests::NTuple{P,Tuple}, file::PhantomFile{P}) where {P}
+    read_data!(dests::NTuple{P,Tuple}, file::PhantomFile{P}) where {P}
+
+Read all particle data from a Phantom binary dump into existing destination vectors.
+
+The destination consists of nested tuples corresponding to the partitions, blocks,
+single columns, and repeated-column groups defined by the file metadata.
+Partition counts are matched by method dispatch; remaining destination structures
+and element types are validated by the corresponding readers. Each vector is resized to match the particle count
+specified by the file, regardless of its initial length.
+
+The function returns a `PhantomData` containing the populated destination vectors
+and their corresponding metadata without copying the particle data.
+
+When an input stream is provided, the function reads from that stream and leaves it
+open. Otherwise, the source file is opened and closed automatically. An error during
+reading may leave previously processed destination vectors modified.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `dests::NTuple{P,Tuple}`: Nested destination tuples containing the particle vectors for all `P` partitions.
+- `file::PhantomFile`: Indexed Phantom file providing the complete data structure, datatypes, particle counts, and byte offsets.
+
+# Returns
+- `PhantomData`: Populated particle data sharing the destination vectors and corresponding file metadata.
+"""
+function read_data!(io :: Base.IO, dests :: NTuple{P,Tuple}, file :: PhantomFile{P}) where {P}
+    partitions = ntuple(Val(P)) do p
+        read_partition!(io, dests[p], file, p)
+    end
+
     return PhantomData(file, partitions)
 end
 
-"""
-    read_block!(io, dest::PhantomBlockData, metadata::PhantomBlockInfo, dtypes)
-    read_block!(io, dest::PhantomBlockData, file::PhantomFile)
-
-Fill a block's single and repeated vectors using `read_column!`. Counts match by dispatch;
-metadata must be the shared source object. Vectors are resized in place and the stream stays open.
-Supply distinct destination vectors for distinct columns.
-"""
-function read_block!(io :: Base.IO, dest :: PhantomBlockData{S, R}, info :: PhantomBlockInfo{S, R}, dtypes :: Tuple) where {S, R}
-    dest.metadata === info || throw(ArgumentError("Destination block metadata does not match source"))
-    for (column, values) in zip(info.columns, dest.columns)
-        read_column!(io, values, column, info.npart, dtypes)
-    end
-    for (g, group) in enumerate(info.column_groups), i in eachindex(group.dtype_indices)
-        column = PhantomColumnInfo(group.name, group.dtype_indices[i], group.data_record_offsets[i])
-        read_column!(io, dest.column_groups[g][i], column, info.npart, dtypes)
-    end
-    return dest
-end
-
-function read_block!(io :: Base.IO, dest :: PhantomBlockData, file :: PhantomFile)
-    any(partition -> any(block -> block === dest.metadata, partition.blocks), file.partitions) ||
-        throw(ArgumentError("Destination block does not belong to this file"))
-    return read_block!(io, dest, dest.metadata, phantom_dtypes(file))
-end
-
-"""
-    read_partition!(io, dest::PhantomPartitionData, metadata::PhantomPartitionInfo, dtypes)
-    read_partition!(io, dest::PhantomPartitionData, file::PhantomFile)
-
-Fill a partition's blocks, reusing their vectors and requiring shared source metadata.
-"""
-function read_partition!(io :: Base.IO, dest :: PhantomPartitionData{B}, info :: PhantomPartitionInfo{B}, dtypes :: Tuple) where {B}
-    dest.metadata === info || throw(ArgumentError("Destination partition metadata does not match source"))
-    for (block, metadata) in zip(dest.blocks, info.blocks)
-        read_block!(io, block, metadata, dtypes)
-    end
-    return dest
-end
-
-function read_partition!(io :: Base.IO, dest :: PhantomPartitionData, file :: PhantomFile)
-    any(info -> info === dest.metadata, file.partitions) || throw(ArgumentError("Destination partition does not belong to this file"))
-    return read_partition!(io, dest, dest.metadata, phantom_dtypes(file))
-end
-
-"""
-    read_data!(io::Base.IO, dest::PhantomData)
-    read_data!(dest::PhantomData)
-
-Fill all preallocated vectors using the shared `dest.metadata` file index. Vectors are resized,
-not replaced. The stream overload leaves `io` open; the other opens and closes the indexed source.
-The stream must contain the dump described by the metadata, including its record offsets.
-"""
-function read_data!(io :: Base.IO, dest :: PhantomData{P, B, S, R}, file :: PhantomFile{P, B, S, R}) where {P, B, S, R}
-    dest.metadata === file || throw(ArgumentError("Destination file metadata does not match source"))
-    dtypes = phantom_dtypes(file)
-    for (partition, info) in zip(dest.partitions, file.partitions)
-        read_partition!(io, partition, info, dtypes)
-    end
-    return dest
-end
-
-read_data!(io :: Base.IO, dest :: PhantomData) = read_data!(io, dest, dest.metadata)
-
-function read_data!(dest :: PhantomData)
-    open(dest.metadata.filename, "r") do io
-        read_data!(io, dest)
+function read_data!(dests :: NTuple{P,Tuple}, file :: PhantomFile{P}) where {P}
+    open(file.filename, "r") do io
+        read_data!(io, dests, file)
     end
 end
+
 
 """
     read_data(io::Base.IO, file::PhantomFile)
     read_data(file::PhantomFile)
 
-Allocate and read all raw particle columns. Returns `PhantomData` sharing the original metadata.
-Singles are in `data.partitions[p].blocks[b].columns`; repeated tags are in `.column_groups`.
-No columns are renamed, filtered, merged, or deduplicated. The stream overload leaves `io` open.
+Allocate and read all particle data from a Phantom binary dump.
+
+Destination vectors are allocated using `allocate_dest` according to the partition,
+block, and column structures specified by the file metadata, then populated using
+`read_data!`. The resulting `PhantomData` contains the particle vectors and their
+corresponding metadata without additional copies.
+
+When an input stream is provided, the function reads from that stream and leaves it
+open. Otherwise, the source file is opened and closed automatically.
+
+# Parameters
+- `io::Base.IO`: Input stream containing the Phantom binary dump.
+- `file::PhantomFile`: Indexed Phantom file providing the complete data structure, datatypes, particle counts, and byte offsets.
+
+# Returns
+- `PhantomData`: The allocated and populated particle data with its corresponding metadata.
 """
-read_data(io :: Base.IO, file :: PhantomFile) = read_data!(io, allocate_data(file))
+function read_data(io :: Base.IO, file :: PhantomFile)
+    dests = allocate_dest(file)
+    return read_data!(io, dests, file)
+end
 
 function read_data(file :: PhantomFile)
     open(file.filename, "r") do io

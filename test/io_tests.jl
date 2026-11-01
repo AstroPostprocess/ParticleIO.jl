@@ -86,19 +86,38 @@ using ParticleIO
             @test header.group_content == Tuple[(TI(11), TI(12)), (TI(21), TI(22))]
             @test header.group_lengths == [2, 2]
             @test header.group_content isa Vector{Tuple}
-            dest = allocate_data(indexed)
+            dests = allocate_dest(indexed)
+
+            # Allocation does not read particle data.
+            @test isempty(dests[1][1][1][1])
+            @test eltype(dests[1][1][1][1]) === TI
+
+            # Read into the allocated destinations.
+            dest = read_data!(dests, indexed)
             @test dest.metadata === indexed
+
             refs = all_vectors(dest)
+            snapshot = map(copy, refs)
+
             open(path, "r") do io
-                @test read_data!(io, dest) === dest
-                @test isopen(io)
-                snapshot = map(copy, refs)
+                # Existing vectors can be resized and reused.
                 foreach(values -> resize!(values, 0), refs)
-                @test read_data!(io, dest) === dest
-                @test all(pair -> pair[1] === pair[2], zip(refs, all_vectors(dest)))
-                @test isequal(all_vectors(dest), snapshot)
-                @test read_partition!(io, dest.partitions[2], indexed) === dest.partitions[2]
-                @test read_block!(io, dest.partitions[1].blocks[1], indexed) === dest.partitions[1].blocks[1]
+
+                restored = read_data!(io, dests, indexed)
+                @test restored.metadata === indexed
+                @test isopen(io)
+                @test all(pair -> pair[1] === pair[2], zip(refs, all_vectors(restored)))
+                @test isequal(all_vectors(restored), snapshot)
+
+                # Read a single partition.
+                partition = read_partition!(io, dests[2], indexed, 2)
+                @test partition.metadata === indexed.partitions[2]
+                @test partition.blocks[1].columns[1] === dests[2][1][1][1]
+
+                # Read a single block.
+                block = read_block!(io, dests[1][1], indexed, 1, 1)
+                @test block.metadata === indexed.partitions[1].blocks[1]
+                @test block.columns[1] === dests[1][1][1][1]
             end
             for p in 1:2, b in 1:4
                 block = dest.partitions[p].blocks[b]
@@ -122,7 +141,10 @@ using ParticleIO
 
             # Identical counts alone do not authorize a different metadata object or vector type.
             other = PhantomFile(path)
-            @test_throws ArgumentError read_data!(IOBuffer(), dest, other)
+            restored = read_data!(dests, other)
+
+            @test restored.metadata === other
+            @test restored.partitions[1].blocks[1].columns[1] === dests[1][1][1][1]
             bad_groups = ((Float64[],), Base.tail(gas.column_groups)...)
             @test_throws DimensionMismatch PhantomBlockData(gas.metadata, gas.columns, bad_groups, phantom_dtypes(indexed))
             wrong = (Int8[], Base.tail(gas.column_groups[1])...)
@@ -131,7 +153,7 @@ using ParticleIO
             @test_throws ArgumentError PhantomPartitionData(different.partitions[1], dest.partitions[1].blocks)
             @test_throws ArgumentError PhantomData(different, dest.partitions)
             unbacked = PhantomFile("missing.dump", indexed.file_identifier, indexed.headers, indexed.sections, indexed.partitions)
-            @test allocate_data(unbacked).metadata === unbacked
+            @test isempty(allocate_dest(unbacked)[1][1][1][1])
             @test isempty(unbacked.file_tags)
             explicit = typeof(indexed)("", indexed.file_identifier, indexed.headers, indexed.sections, indexed.partitions;
                 file_tags = [:hydro, Symbol("1dust")])
@@ -161,8 +183,24 @@ using ParticleIO
                 @test_throws DimensionMismatch PhantomBlockInfo(info.npart, ntuple(_ -> Int32(0), 8), info.columns, info.column_groups)
                 swapped_counts = (info.array_counts[1] + Int32(1), info.array_counts[2] - Int32(1), info.array_counts[3:end]...)
                 @test_throws DimensionMismatch PhantomBlockInfo(info.npart, swapped_counts, info.columns, info.column_groups)
-                @test_throws MethodError read_block!(IOBuffer(), gas, indexed.partitions[1].blocks[2], phantom_dtypes(indexed))
-                @test_throws ArgumentError read_block!(IOBuffer(), gas, different.partitions[1].blocks[1], phantom_dtypes(indexed))
+                # Partition count must match by type dispatch.
+                @test_throws MethodError read_data!(IOBuffer(), Base.front(dests), indexed)
+
+                # Block count must match by type dispatch.
+                @test_throws MethodError read_partition!(IOBuffer(), Base.front(dests[1]), indexed, 1)
+
+                # Single-column count must match the selected block.
+                wrong_columns = (Base.front(dests[1][1][1]), dests[1][1][2])
+                @test_throws DimensionMismatch read_block!(IOBuffer(), wrong_columns, indexed, 1, 1)
+
+                # Repeated-group member count must match.
+                wrong_group = (Base.front(dests[1][1][2][1]), Base.tail(dests[1][1][2])...)
+                @test_throws DimensionMismatch read_block!(IOBuffer(), (dests[1][1][1], wrong_group), indexed, 1, 1)
+
+                # Destination element types must match.
+                wrong_dtype = (Int8[], Base.tail(dests[1][1][2][1])...)
+                wrong_groups = (wrong_dtype, Base.tail(dests[1][1][2])...)
+                @test_throws ArgumentError read_block!(IOBuffer(), (dests[1][1][1], wrong_groups), indexed, 1, 1)
                 @test_throws MethodError PhantomPartitionData(indexed.partitions[1], Base.front(dest.partitions[1].blocks))
 
                 # S/R can match while a repeated group's member count differs across partitions.
