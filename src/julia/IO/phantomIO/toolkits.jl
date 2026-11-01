@@ -14,9 +14,12 @@ if !isdefined(@__MODULE__, :PhantomFile)
     include(joinpath(@__DIR__, "struct", "PhantomPartitionOffsets.jl"))
     include(joinpath(@__DIR__, "struct", "PhantomSectionOffsets.jl"))
     include(joinpath(@__DIR__, "struct", "PhantomColumnInfo.jl"))
+    include(joinpath(@__DIR__, "struct", "PhantomColumnGroupInfo.jl"))
     include(joinpath(@__DIR__, "struct", "PhantomBlockInfo.jl"))
-    include(joinpath(@__DIR__, "struct", "PhantomPartition.jl"))
+    include(joinpath(@__DIR__, "struct", "PhantomPartitionInfo.jl"))
     include(joinpath(@__DIR__, "struct", "PhantomFile.jl"))
+    include(joinpath(@__DIR__, "struct", "PhantomBlockData.jl"))
+    include(joinpath(@__DIR__, "struct", "PhantomPartitionData.jl"))
     include(joinpath(@__DIR__, "struct", "PhantomData.jl"))
 
     # Binary readers

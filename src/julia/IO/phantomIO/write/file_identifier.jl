@@ -2,10 +2,10 @@ const _PARTICLEIO_PROJECT_FILE = normpath(joinpath(@__DIR__, "..", "..", "..", "
 Base.include_dependency(_PARTICLEIO_PROJECT_FILE)
 const _PARTICLEIO_OUTPUT_VERSION = TOML.parsefile(_PARTICLEIO_PROJECT_FILE)["version"]
 
-"""Generate ParticleIO provenance with the package version and timestamp."""
+"""Generate a Phantom identifier with the ParticleIO version and timestamp."""
 function _particleio_file_identifier()
     timestamp = Dates.format(Dates.now(), "dd/mm/yyyy HH:MM:SS.s")
-    identifier = "FT:ParticleIO:$(_PARTICLEIO_OUTPUT_VERSION): $timestamp"
+    identifier = "FT:Phantom:ParticleIO:$(_PARTICLEIO_OUTPUT_VERSION): $timestamp"
     ncodeunits(identifier) <= 100 || throw(ArgumentError("File identifier exceeds 100 bytes"))
     return identifier
 end

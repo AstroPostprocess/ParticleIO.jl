@@ -30,7 +30,7 @@ end
 
 Collect typed Phantom headers and compatibility metadata into a parameter dictionary.
 """
-function _collect_header_params(file :: PhantomFile{P, B, C, TI, TF}) where {P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function _collect_header_params(file :: PhantomFile{P, B, CS, CR, TI, TF}) where {P, B, CS, CR, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     header_blocks = (
         file.headers.default_integer,
         file.headers.int8,
@@ -64,18 +64,21 @@ function _collect_header_params(file :: PhantomFile{P, B, C, TI, TF}) where {P, 
 end
 
 """
-    _merge_physical_blocks(partition::PhantomPartition, block_data::Tuple)
+    _merge_physical_blocks(partition::PhantomPartitionData)
 
 Convert raw columns to analysis tables, merging non-sink blocks and preserving block 2 as sinks.
-Strip names only for table keys; later repeated names overwrite earlier columns as in the original reader.
+Repeated tags become tuple-valued table columns, preserving every member without renaming tags.
 """
-function _merge_physical_blocks(partition :: PhantomPartition, block_data :: Tuple)
+function _merge_physical_blocks(partition :: PhantomPartitionData)
     df = DataFrame()
     df_sinks = DataFrame()
     for (b, block) in enumerate(partition.blocks)
         target = b == 2 ? df_sinks : df
-        for (column, values) in zip(block.columns, block_data[b])
+        for (column, values) in zip(block.metadata.columns, block.columns)
             target[!, strip(column.name)] = values
+        end
+        for (group, vectors) in zip(block.metadata.column_groups, block.column_groups)
+            target[!, strip(group.name)] = collect(zip(vectors...))
         end
     end
     return df, df_sinks
@@ -111,12 +114,13 @@ particle_types = read_phantom("dumpfile_00000"; separate_types = :all)
 ```
 
 # Notes
-The second array block of each partition is treated as sink data to preserve the behavior of the original reader.
+The second array block of each partition is treated as sink data. Repeated tags become tuple-valued
+DataFrame columns; use `read_data` to access their separate vectors directly.
 """
 function read_phantom(filename :: String; separate_types :: Symbol = :sinks, ignore_inactive :: Bool = true)
     file = PhantomFile(filename)
     block_data = read_data(file)
-    per_partition = map(_merge_physical_blocks, file.partitions, block_data.data)
+    per_partition = map(_merge_physical_blocks, block_data.partitions)
     df = reduce((a, b) -> vcat(a, b; cols = :union), map(first, per_partition))
     df_sinks = reduce((a, b) -> vcat(a, b; cols = :union), map(last, per_partition))
     if length(per_partition) > 1

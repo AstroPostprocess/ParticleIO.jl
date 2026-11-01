@@ -36,9 +36,12 @@ include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomHeaders.jl"))
 include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomPartitionOffsets.jl"))
 include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomSectionOffsets.jl"))
 include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomColumnInfo.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomColumnGroupInfo.jl"))
 include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomBlockInfo.jl"))
-include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomPartition.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomPartitionInfo.jl"))
 include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomFile.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomBlockData.jl"))
+include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomPartitionData.jl"))
 include(joinpath(@__DIR__, "phantomIO", "struct", "PhantomData.jl"))
 
 # Binary readers

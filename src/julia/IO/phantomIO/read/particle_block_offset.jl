@@ -73,10 +73,12 @@ Column names retain all 16 bytes, including leading and trailing whitespace.
             end
         end
 
+        singles, groups = _group_column_metadata(columns)
         blocks[block_index] = PhantomBlockInfo(
             npart,
             array_counts,
-            Tuple(columns),
+            singles,
+            groups,
         )
     end
 

@@ -3,49 +3,37 @@
 
 Validate the metadata and nested column vectors before any output is modified.
 """
-function _validate_phantom_output(file :: PhantomFile{P, B, C, TI, TF}, block_data :: PhantomData{P, B, C}) where {P, B, C, TI, TF}
+function _validate_phantom_output(file :: PhantomFile{P, B, CS, CR}, data :: PhantomData{P, B, CS, CR}) where {P, B, CS, CR}
+    data.metadata === file || throw(ArgumentError("Data must share the supplied file metadata"))
     _phantom_partition_count(file.headers) == P || throw(ArgumentError("Header nblocks does not match partition count"))
     Int128(B) * P <= 1_000_000 || throw(ArgumentError("Too many particle blocks"))
     for field in fieldnames(typeof(file.headers))
         _validate_header_block(getfield(file.headers, field))
     end
-
     dtypes = phantom_dtypes(file)
-    for (partition, partition_data) in zip(file.partitions, block_data)
-        for (block, columns) in zip(partition.blocks, partition_data)
-            index = 1
-            for dtype_index in eachindex(dtypes)
-                T = dtypes[dtype_index]
-                for _ in 1:block.array_counts[dtype_index]
-                    column = block.columns[index]
-                    content = columns[index]
-                    Int(column.dtype_index) == dtype_index ||
-                        throw(ArgumentError("Columns must follow the eight datatype groups in order"))
-                    ncodeunits(column.name) <= 16 || throw(ArgumentError("Column name exceeds 16 bytes"))
-                    content isa AbstractVector{T} || throw(ArgumentError("Column $index requires an AbstractVector{$T}"))
-                    Base.require_one_based_indexing(content)
-                    length(content) == block.npart || throw(DimensionMismatch("Column length does not match npart"))
-                    length(content) <= div(typemax(Int32), sizeof(T)) ||
-                        throw(ArgumentError("Column record exceeds the Int32 byte-count limit"))
-                    index += 1
-                end
-            end
+    for partition in data.partitions, block in partition.blocks
+        _validate_block_vectors(block, dtypes)
+        for location in _physical_column_locations(block.metadata)
+            column = _column_info(block.metadata, location)
+            values = _column_vector(block, location)
+            ncodeunits(column.name) <= 16 || throw(ArgumentError("Column name exceeds 16 bytes"))
+            length(values) <= div(typemax(Int32), sizeof(eltype(values))) ||
+                throw(ArgumentError("Column record exceeds the Int32 byte-count limit"))
         end
     end
     return nothing
 end
 
-function _write_data(io :: Base.IO, file :: PhantomFile{P, B, C, TI, TF}, block_data :: PhantomData{P, B, C}, identifier :: String) where {P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function _write_data(io :: Base.IO, file :: PhantomFile{P, B, CS, CR, TI, TF}, data :: PhantomData{P, B, CS, CR}, identifier :: String) where {P, B, CS, CR, TI, TF}
     _write_capture_pattern(io, TI, TF)
     _write_file_identifier(io, position(io), identifier)
     _write_global_header(io, file.headers)
-    total_blocks = P * B
-    _write_fortran_block(io, Int32[total_blocks])
-    for (partition, partition_data) in zip(file.partitions, block_data)
-        _write_particle_block_metadata(io, partition.blocks)
-        for (block, columns) in zip(partition.blocks, partition_data)
-            for (column, content) in zip(block.columns, columns)
-                _write_column(io, column, content)
+    _write_fortran_block(io, Int32[P * B])
+    for partition in data.partitions
+        _write_particle_block_metadata(io, partition.metadata.blocks)
+        for block in partition.blocks
+            for location in _physical_column_locations(block.metadata)
+                _write_column(io, _column_info(block.metadata, location), _column_vector(block, location))
             end
         end
     end
@@ -53,12 +41,16 @@ function _write_data(io :: Base.IO, file :: PhantomFile{P, B, C, TI, TF}, block_
 end
 
 """
-    write_data(io::Base.IO, file::PhantomFile{P,B,C}, data::PhantomData{P,B,C})
-    write_data(filename::AbstractString, file::PhantomFile{P,B,C}, data::PhantomData{P,B,C}; overwrite=false)
+    write_data(io::Base.IO, file::PhantomFile{P,B,CS,CR}, data::PhantomData{P,B,CS,CR})
+    write_data(filename::AbstractString, file::PhantomFile{P,B,CS,CR}, data::PhantomData{P,B,CS,CR}; overwrite=false)
 
 Write a Phantom binary dump using metadata from `file` and vectors from `data`.
-The structures must match; vector types and lengths are checked before writing.
-Headers are written as supplied, with a new ParticleIO version/timestamp identifier.
+Omit `file` to use `data.metadata`.
+Data must share `file`; vector types and lengths are checked before writing. Original offsets
+restore physical column order. Without usable offsets, datatype groups are written in order,
+with singles followed by repeated groups within each datatype. Group member order is preserved;
+metadata whose group order conflicts with datatype order cannot be serialized.
+Headers are written as supplied, with a new `FT:Phantom:ParticleIO:<version>: <timestamp>` identifier.
 
 The stream must be empty and positioned at zero; it is left open. The path overload
 writes through a temporary file and requires `overwrite=true` to replace an existing file.
@@ -70,7 +62,7 @@ data = read_data(file)
 write_data("output.dump", file, data)
 ```
 """
-function write_data(io :: Base.IO, file :: PhantomFile{P, B, C}, block_data :: PhantomData{P, B, C}) where {P, B, C}
+function write_data(io :: Base.IO, file :: PhantomFile{P, B, CS, CR}, block_data :: PhantomData{P, B, CS, CR}) where {P, B, CS, CR}
     _validate_phantom_output(file, block_data)
     identifier = _particleio_file_identifier()
     position(io) == 0 && eof(io) || throw(ArgumentError("Output stream must be empty and positioned at zero"))
@@ -78,7 +70,7 @@ function write_data(io :: Base.IO, file :: PhantomFile{P, B, C}, block_data :: P
     return nothing
 end
 
-function write_data(filename :: AbstractString, file :: PhantomFile{P, B, C}, block_data :: PhantomData{P, B, C}; overwrite :: Bool = false) where {P, B, C}
+function write_data(filename :: AbstractString, file :: PhantomFile{P, B, CS, CR}, block_data :: PhantomData{P, B, CS, CR}; overwrite :: Bool = false) where {P, B, CS, CR}
     _validate_phantom_output(file, block_data)
     identifier = _particleio_file_identifier()
     target = abspath(filename)
@@ -95,3 +87,7 @@ function write_data(filename :: AbstractString, file :: PhantomFile{P, B, C}, bl
     end
     return nothing
 end
+
+# The data hierarchy already holds its source metadata.
+write_data(io :: Base.IO, data :: PhantomData) = write_data(io, data.metadata, data)
+write_data(filename :: AbstractString, data :: PhantomData; overwrite :: Bool = false) = write_data(filename, data.metadata, data; overwrite)

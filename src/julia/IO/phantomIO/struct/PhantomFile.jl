@@ -1,5 +1,5 @@
 """
-    PhantomFile{P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+    PhantomFile{P, B, CS, CR, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
 
 Indexed metadata container for a Phantom native binary dump file.
 
@@ -10,8 +10,8 @@ are stored separately in `PhantomData`, loaded through `read_data(file)`.
 # Type Parameters
 - `P` : Number of partitions in the file. Must be positive.
 - `B` : Number of array blocks in each partition.
-- `C` : Tuple of column counts per block, shared by all partitions. `length(C) == B`,
-  and `C[b]` is the number of columns in block `b`; for example, `(11, 14)` for two blocks.
+- `CS` : Tuple of single-column counts per block, with length `B`.
+- `CR` : Tuple of repeated-name group counts per block, with length `B`; not the number of group members.
 - `TI <: _PHANTOM_INT_TYPE` : Default integer datatype, either `Int32` or `Int64`.
 - `TF <: _PHANTOM_REAL_TYPE` : Default real datatype, either `Float32` or `Float64`.
 
@@ -24,41 +24,48 @@ are stored separately in `PhantomData`, loaded through `read_data(file)`.
   repeated entries, and their order within each group.
 - `sections :: PhantomSectionOffsets{P}` : Absolute, zero-based byte offsets for the capture pattern,
   file identifier, global header, and each partition's metadata and particle-data sections.
-- `partitions :: NTuple{P, PhantomPartition{B}}` : Ordered partitions. Each contains `B` blocks;
+- `partitions :: NTuple{P, PhantomPartitionInfo{B}}` : Ordered partitions. Each contains `B` blocks;
   `partitions[p].blocks[b].columns[c]` gives the name, datatype-group index, and data-record offset
-  of column `c`. Each block also stores its particle count and eight datatype-group array counts.
+  of single column `c`. Repeated tags are stored in `column_groups`, with a datatype index and offset
+  per member. Each block also stores its particle count and eight datatype-group array counts.
 
 # Notes
 Partition and block counts are fixed by tuple storage. Column metadata are also tuples;
-construction checks their lengths against `C`. Particle counts may differ between partitions.
+Construction checks their lengths against `CS` and `CR`, and schemas across partitions.
+Particle counts may differ between partitions.
 The struct is immutable, but the vectors inside its header groups remain mutable.
 
 `TI` and `TF` describe only the default datatype groups. Use `phantom_dtypes(file)` together
 with a column's `dtype_index` to resolve its actual element type.
 """
-struct PhantomFile{P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+struct PhantomFile{P, B, CS, CR, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     filename        :: String
     file_identifier :: String
     headers         :: PhantomHeaders{TI, TF}
     sections        :: PhantomSectionOffsets{P}
-    partitions      :: NTuple{P, PhantomPartition{B}}
+    partitions      :: NTuple{P, PhantomPartitionInfo{B}}
 
-    function PhantomFile{P, B, C, TI, TF}(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartition{B}}) where {P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
-        # C describes the column count of each block, in file order.
-        C isa Tuple && all(n -> n isa Int && n >= 0, C) || throw(ArgumentError("Column counts must be a tuple of nonnegative Int values"))
+    function PhantomFile{P, B, CS, CR, TI, TF}(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}) where {P, B, CS, CR, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
         P > 0 || throw(ArgumentError("At least one partition is required"))
-        B == length(C) || throw(DimensionMismatch("Block count does not match $C"))
-        for partition in partitions
-            for (block, count) in zip(partition.blocks, C)
-                length(block.columns) == count || throw(DimensionMismatch("Partition column counts do not match $C"))
-            end
+        CS isa Tuple && CR isa Tuple || throw(ArgumentError("CS and CR must be tuples"))
+        length(CS) == length(CR) == B || throw(DimensionMismatch("Block counts do not match CS and CR"))
+        all(n -> n isa Int && n >= 0, (CS..., CR...)) || throw(ArgumentError("Invalid column counts"))
+        reference = first(partitions)
+        for partition in partitions, b in 1:B
+            block = partition.blocks[b]
+            length(block.columns) == CS[b] && length(block.column_groups) == CR[b] ||
+                throw(DimensionMismatch("Partition single/group counts do not match CS and CR"))
+            expected = reference.blocks[b]
+            map(c -> (c.name, c.dtype_index), block.columns) == map(c -> (c.name, c.dtype_index), expected.columns) &&
+                map(g -> (g.name, g.dtype_indices), block.column_groups) == map(g -> (g.name, g.dtype_indices), expected.column_groups) ||
+                throw(ArgumentError("Corresponding partition blocks must share names, group sizes, and datatypes"))
         end
-        return new{P, B, C, TI, TF}(filename, identifier, headers, sections, partitions)
+        return new{P, B, CS, CR, TI, TF}(filename, identifier, headers, sections, partitions)
     end
 end
 
 """
-    PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartition{B}})
+    PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}})
 
 Construct a file index from existing metadata without opening or reading a file.
 
@@ -67,19 +74,20 @@ Construct a file index from existing metadata without opening or reading a file.
 - `identifier :: String` : File identifier to store.
 - `headers :: PhantomHeaders{TI, TF}` : Typed global-header groups.
 - `sections :: PhantomSectionOffsets{P}` : Global and per-partition byte offsets.
-- `partitions :: NTuple{P, PhantomPartition{B}}` : Ordered block and column metadata.
+- `partitions :: NTuple{P, PhantomPartitionInfo{B}}` : Ordered block and column metadata.
 
 # Returns
-- `PhantomFile{P, B, C, TI, TF}` : Index with `C` inferred from the first partition's column counts.
+- `PhantomFile{P, B, CS, CR, TI, TF}` : Index with `CS` and `CR` inferred from the first partition.
 
 # Notes
 Every partition must have the same per-block column counts. Metadata are retained without
 deep copying; this constructor does not verify that offsets or header values describe the source file.
 """
-function PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartition{B}}) where {P, B, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
+function PhantomFile(filename :: String, identifier :: String, headers :: PhantomHeaders{TI, TF}, sections :: PhantomSectionOffsets{P}, partitions :: NTuple{P, PhantomPartitionInfo{B}}) where {P, B, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     P > 0 || throw(ArgumentError("At least one partition is required"))
-    counts = Tuple(length(block.columns) for block in first(partitions).blocks)
-    return PhantomFile{P, B, counts, TI, TF}(filename, identifier, headers, sections, partitions)
+    singles = map(block -> length(block.columns), first(partitions).blocks)
+    groups = map(block -> length(block.column_groups), first(partitions).blocks)
+    return PhantomFile{P, B, singles, groups, TI, TF}(filename, identifier, headers, sections, partitions)
 end
 
 """
@@ -102,7 +110,7 @@ remaining entries correspond to the explicit-width datatypes defined by the Phan
 # Notes
 The tuple order matches `PhantomBlockInfo.array_counts` and `PhantomColumnInfo.dtype_index`.
 """
-@inline phantom_dtypes(:: PhantomFile{P, B, C, TI, TF}) where {P, B, C, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE} = (
+@inline phantom_dtypes(:: PhantomFile{P, B, CS, CR, TI, TF}) where {P, B, CS, CR, TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE} = (
     TI,
     Int8,
     Int16,
@@ -137,7 +145,7 @@ constructed object is returned.
 - `filename::AbstractString`: Path of the Phantom dump file to index.
 
 # Returns
-- `PhantomFile{P, B, C, TI, TF}`: Indexed metadata with structure and default datatypes inferred from the file.
+- `PhantomFile{P, B, CS, CR, TI, TF}`: Indexed metadata with structure and default datatypes inferred from the file.
 
 # Examples
 ```julia
@@ -145,14 +153,14 @@ file = PhantomFile("test/testinput/testdumpfile_00000")
 file.file_identifier
 file.partitions[1].blocks[1].columns
 data = read_data(file)
-data[1, 1, 1]
+data.partitions[1].blocks[1].columns[1]
 ```
 
 # Notes
 Particle-array values are not loaded by this constructor. Each `PhantomColumnInfo.data_record_offset` can be used for
 selective or deferred loading.
 The global-header parameter `nblocks` supplies `P`; if absent, one partition is assumed.
-The total array-block count must be divisible by `P`, and all partitions must agree on `C`.
+The total array-block count must be divisible by `P`, and all partitions must agree on single and repeated-column schemas.
 """
 function PhantomFile(filename :: AbstractString)
     filename_string = String(filename)
@@ -172,9 +180,8 @@ end
 """
     _build_phantom_file(io::Base.IO, filename::String, ::Type{TI}, ::Type{TF})
 
-Build a `PhantomFile{P,B,C,TI,TF}` after its default datatypes have been detected.
-`P` is the partition count, `B` is the block count per partition, and `C` is the tuple
-of column counts per block, shared by every partition.
+Build a `PhantomFile{P,B,CS,CR,TI,TF}` after its default datatypes have been detected.
+`P` is the partition count, `B` is the block count per partition, and `CS` and `CR` count singles and repeated-name groups per block, shared by every partition.
 """
 function _build_phantom_file(io :: Base.IO, filename :: String, :: Type{TI}, :: Type{TF}) where {TI <: _PHANTOM_INT_TYPE, TF <: _PHANTOM_REAL_TYPE}
     # Capture pattern always starts at the beginning of the file
@@ -252,7 +259,7 @@ function _index_phantom_partitions(io :: Base.IO, filename :: String, identifier
         counts, arrays = _read_particle_block_metadata(io, metadata_offset, blocks_per_partition)
         data_offset = Int64(position(io))
         blocks = _read_particle_block_offset(io, data_offset, counts, arrays, TI, TF)
-        return PhantomPartition(Tuple(blocks)), PhantomPartitionOffsets(metadata_offset, data_offset)
+        return PhantomPartitionInfo(Tuple(blocks)), PhantomPartitionOffsets(metadata_offset, data_offset)
     end
     partitions = map(first, indexed)
     sections = PhantomSectionOffsets{P}(capture_offset, identifier_offset, header_offset, map(last, indexed))

@@ -13,6 +13,7 @@ using ParticleIO
 
 # ========================== Phantom reading ================================= #
 
+include("phantom_test_common.jl")
 include("io_tests.jl")
 
 # ========================== Phantom writing ================================= #
