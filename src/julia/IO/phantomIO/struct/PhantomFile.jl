@@ -242,18 +242,24 @@ Absent `nblocks` defaults to one partition for legacy single-partition inputs.
 Ambiguous or invalid declarations are rejected.
 """
 function _phantom_partition_count(headers :: PhantomHeaders)
-    values = Any[]
+    nblocks = nothing
     for field in fieldnames(typeof(headers))
         header = getfield(headers, field)
-        for (key, value) in _header_entries(header)
-            strip(key) == "nblocks" && push!(values, value)
+
+        for (key, value) in zip(header.keys, header.content)
+            strip(key) == "nblocks" || continue
+            isnothing(nblocks) || throw(ArgumentError("Ambiguous nblocks header"))
+            nblocks = value
         end
+
+        any(key -> strip(key) == "nblocks", header.group_keys) &&
+            throw(ArgumentError("Ambiguous nblocks header"))
     end
-    isempty(values) && return 1
-    length(values) == 1 || throw(ArgumentError("Ambiguous nblocks header"))
-    n = only(values)
-    n isa Integer && 1 <= n <= 1_000_000 || throw(ArgumentError("Invalid partition count: $n"))
-    return Int(n)
+
+    isnothing(nblocks) && return 1
+    nblocks isa Integer && 1 <= nblocks <= 1_000_000 ||
+        throw(ArgumentError("Invalid partition count: $nblocks"))
+    return Int(nblocks)
 end
 
 function _index_phantom_partitions(io :: Base.IO, filename :: String, identifier :: String,
