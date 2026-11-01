@@ -18,13 +18,14 @@ public-facing functions for external use.
 
 Implemented in:
 - `phantomIO/read_phantom.jl`
-- `phantomIO/write_phantom.jl`
+- `phantomIO/write_data.jl`
 
 """
 module IO
 
 using .Threads
 using DataFrames
+import Dates, TOML
 using StaticArrays: MVector
 using ParticleIO.Particles
 
@@ -58,7 +59,7 @@ include(joinpath(@__DIR__, "phantomIO", "write", "file_identifier.jl"))
 include(joinpath(@__DIR__, "phantomIO", "write", "global_header.jl"))
 include(joinpath(@__DIR__, "phantomIO", "write", "particle_block_metadata.jl"))
 include(joinpath(@__DIR__, "phantomIO", "write", "column.jl"))
-include(joinpath(@__DIR__, "phantomIO", "write_phantom.jl"))
+include(joinpath(@__DIR__, "phantomIO", "write_data.jl"))
 
 # Export function, marco, const...
 for name in filter(s -> !startswith(string(s), "#"), names(@__MODULE__, all = true))

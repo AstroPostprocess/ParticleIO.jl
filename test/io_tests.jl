@@ -1,127 +1,51 @@
-# ──────────────────────────────────────────────────────────────────────────── #
-#  Test: IO — Phantom Binary Dump Reader
-# ──────────────────────────────────────────────────────────────────────────── #
-#
-#  What this file tests
-#  ─────────────────────
-#  Validates `read_phantom`, the Phantom SPH binary dump file reader,
-#  using the bundled test dump file `testinput/testdumpfile_00000`.
-#
-#  1. Basic read — default parameters
-#     • Returns a non-empty `Vector{ParticleDataFrame}`.
-#     • First element (gas) contains expected columns (x, y, z, h, …).
-#     • Particle count is positive and matches header `npart`.
-#
-#  2. ParticleDataFrame interface
-#     • `get_dim` — returns 2 or 3.
-#     • `get_time` — returns a finite Float64.
-#     • `get_npart` — matches `nrow(dfdata)`.
-#     • `names` — column listing.
-#     • Indexing: `prdf[:, :x]`, `prdf[!, :x]`, `prdf[1, :x]`.
-#
-#  3. Header parameters
-#     • `params` dict contains expected keys (:npart, :massoftype, etc.).
-#
-#  Test data
-#  ─────────
-#  • `testinput/testdumpfile_00000` — a minimal Phantom binary dump file
-#    shipped with the repository for CI purposes.
-#
-# ──────────────────────────────────────────────────────────────────────────── #
+######################################################################################
 
+#  Test: Phantom IO -- Complete Dump Reading
+#  What this file tests
+#  Reads the bundled dump through the public metadata, raw-data, and analysis APIs:
+#  1. File structure
+#     -- Partition, block, and column counts; identifier width and particle counts.
+#  2. Raw particle data
+#     -- Column order, element types, vector lengths, and shared metadata.
+#  3. Analysis tables
+#     -- Particle counts and coordinates agree with the unfiltered raw columns.
+#  Test data
+#  -- testinput/testdumpfile_00000: one partition with 550000 ordinary particles
+#     and two sink particles.
+
+######################################################################################
 using Test
 using ParticleIO
 
-# ========================== Constants ======================================= #
-
-testdump = joinpath(@__DIR__, "testinput", "testdumpfile_00000")
-
 # ============================== Test body =================================== #
 
-# ── 1. Basic read ────────────────────────────────────────────────────── #
+@testset "Phantom read -- complete dump" begin
+    filename = joinpath(@__DIR__, "testinput", "testdumpfile_00000")
+    file = PhantomFile(filename)
+    data = read_data(file)
 
-@testset "read_phantom — basic read" begin
-    @test isfile(testdump)
+    # 1. File structure and expected column order.
+    @test file isa PhantomFile{1, 2, (11, 14), Int32, Float64}
+    @test data isa PhantomData{1, 2, (11, 14)}
+    @test data.metadata === file.partitions
+    @test ncodeunits(file.file_identifier) == 100
+    @test map(block -> block.npart, file.partitions[1].blocks) == (550000, 2)
+    @test map(column -> strip(column.name), data.metadata[1].blocks[1].columns) ==
+        ("itype", "x", "y", "z", "vx", "vy", "vz", "dustfrac", "h", "divv", "dt")
 
-    data_list = read_phantom(testdump)
-
-    @test data_list isa Vector
-    @test length(data_list) >= 1
-
-    gas = data_list[1]
-    @test gas isa ParticleIO.IO.ParticleDataFrame
-    @test get_npart(gas) > 0
-
-    # Must contain spatial columns
-    colnames = names(gas)
-    @test "x" in colnames
-    @test "y" in colnames
-    @test "h" in colnames
-end
-
-# ── 2. ParticleDataFrame interface ───────────────────────────────────── #
-
-@testset "ParticleDataFrame — interface" begin
-    data_list = read_phantom(testdump)
-    gas = data_list[1]
-
-    # Dimension
-    dim = get_dim(gas)
-    @test dim in (2, 3)
-
-    # Time
-    t = get_time(gas)
-    if t !== nothing
-        @test t isa AbstractFloat
-        @test isfinite(t)
+    # 2. Raw vectors follow the indexed metadata without copying the metadata.
+    dtypes = phantom_dtypes(file)
+    for (p, partition) in enumerate(file.partitions), (b, block) in enumerate(partition.blocks)
+        @test all(length(values) == block.npart for values in data[p][b])
+        @test map(eltype, data[p][b]) == map(column -> dtypes[Int(column.dtype_index)], block.columns)
+        @test data.metadata[p].blocks[b] === block
     end
 
-    # Particle count consistency
-    n = get_npart(gas)
-    @test n == size(gas.dfdata, 1)
-
-    # Indexing: column access
-    x_copy = gas[:, :x]
-    @test length(x_copy) == n
-
-    x_ref = gas[!, :x]
-    @test length(x_ref) == n
-
-    # Single-particle access
-    x1 = gas[1, :x]
-    @test x1 isa AbstractFloat
-end
-
-# ── 3. Header parameters ────────────────────────────────────────────── #
-
-@testset "read_phantom — header parameters" begin
-    data_list = read_phantom(testdump)
-    gas = data_list[1]
-
-    params = gas.params
-    @test params isa Dict
-
-    # Phantom headers always contain mass-related keys
-    @test haskey(params, :mass) || haskey(params, :massoftype)
-end
-
-# ── 4. Alternative read modes ───────────────────────────────────────── #
-
-@testset "read_phantom — separate_types and inactive-particle handling" begin
-    data_default = read_phantom(testdump)
-    data_all = read_phantom(testdump; separate_types = :all)
-    data_all_keep_inactive = read_phantom(testdump; separate_types = :all, ignore_inactive = false)
-
-    @test length(data_all) >= length(data_default)
-    @test length(data_all) >= 2
-
-    npart_all = sum(get_npart(prdf) for prdf in data_all)
-    npart_all_keep_inactive = sum(get_npart(prdf) for prdf in data_all_keep_inactive)
-
-    @test npart_all > 0
-    @test npart_all_keep_inactive >= npart_all
-    @test haskey(data_all[1].params, :nparttot)
-    @test npart_all <= data_all[1].params[:nparttot]
-    @test npart_all_keep_inactive >= data_all[1].params[:nparttot]
-    @test npart_all_keep_inactive - data_all[1].params[:nparttot] == get_npart(data_all_keep_inactive[end])
+    # 3. Keep inactive particles so analysis and raw data describe the same rows.
+    particles, sinks = read_phantom(filename; ignore_inactive = false)
+    @test get_npart(particles) == 550000
+    @test get_npart(sinks) == 2
+    @test isequal(particles[!, :x], data[1, 1, 2])
+    @test isequal(sinks[!, :x], data[1, 2, 1])
+    @test particles.params[:nparttot] == 550000
 end

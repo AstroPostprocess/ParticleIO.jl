@@ -84,12 +84,12 @@ Read all indexed particle columns into raw vectors, preserving partition, block,
 file = PhantomFile("dumpfile_00000")
 data = read_data(file)
 column = data[1][1][1]
-write_phantom("copy_00000", file, data)
+write_data("copy_00000", file, data)
 ```
 
 # Notes
 No DataFrames are created, and no particles or columns are filtered, merged, or deduplicated.
-Original names are stored in `data.column_names[p][b][c]`, including whitespace padding and duplicates.
+Column metadata are shared with `file.partitions` through `data.metadata`, including raw names and duplicates.
 Names are not used as keys, so repeated names retain separate vectors.
 The stream position advances as records are read. Every column is newly allocated; input metadata is unchanged.
 """

@@ -1,5 +1,6 @@
 using StaticArrays
 using DataFrames
+import Dates, TOML
 
 # Temporary standalone definition used until the new reader is connected to the IO module
 if !isdefined(@__MODULE__, :ParticleDataFrame)
@@ -36,7 +37,7 @@ if !isdefined(@__MODULE__, :PhantomFile)
     include(joinpath(@__DIR__, "write", "phantom_datatype.jl"))
     include(joinpath(@__DIR__, "write", "particle_block_metadata.jl"))
     include(joinpath(@__DIR__, "write", "column.jl"))
-    include(joinpath(@__DIR__, "write_phantom.jl"))
+    include(joinpath(@__DIR__, "write_data.jl"))
 
 
 end
@@ -53,6 +54,6 @@ filename = normpath(joinpath(
     "testdumpfile_00000",
 ))
 
-phantom_file = PhantomFile(filename)
-data = read_data(phantom_file)
+file = PhantomFile(filename)
+data = read_data(file)
 nothing

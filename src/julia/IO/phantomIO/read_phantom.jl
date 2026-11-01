@@ -116,7 +116,7 @@ The second array block of each partition is treated as sink data to preserve the
 function read_phantom(filename :: String; separate_types :: Symbol = :sinks, ignore_inactive :: Bool = true)
     file = PhantomFile(filename)
     block_data = read_data(file)
-    per_partition = map(_merge_physical_blocks, file.partitions, block_data.partitions)
+    per_partition = map(_merge_physical_blocks, file.partitions, block_data.data)
     df = reduce((a, b) -> vcat(a, b; cols = :union), map(first, per_partition))
     df_sinks = reduce((a, b) -> vcat(a, b; cols = :union), map(last, per_partition))
     if length(per_partition) > 1

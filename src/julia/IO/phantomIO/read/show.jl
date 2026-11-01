@@ -16,27 +16,28 @@ function Base.show(io :: Base.IO, :: MIME"text/plain", data :: PhantomData{P, B,
         println(io)
         print(io, "  ", rpad(label, 24), ": ", value)
     end
-    for (p, partition_names) in enumerate(data.column_names)
+    for (p, partition) in enumerate(data.metadata)
         println(io)
         println(io)
         printstyled(io, "  Partition $p"; bold = true, color = :cyan)
-        if isempty(partition_names)
+        if isempty(partition.blocks)
             println(io)
             print(io, "    (no blocks)")
         end
-        for (b, names) in enumerate(partition_names)
+        for (b, block) in enumerate(partition.blocks)
+            columns = block.columns
             println(io)
             println(io)
-            println(io, "    Block $b: ", length(names), " columns")
-            if isempty(names)
+            println(io, "    Block $b: ", length(columns), " columns")
+            if isempty(columns)
                 print(io, "      (no columns)")
                 continue
             end
             printstyled(io, "      ", rpad("column_index", 14), "name"; bold = true)
-            for (c, name) in enumerate(names)
+            for (c, column) in enumerate(columns)
                 println(io)
                 print(io, "      ", rpad(string(c), 14))
-                printstyled(io, strip(name); color = :green)
+                printstyled(io, strip(column.name); color = :green)
             end
         end
     end

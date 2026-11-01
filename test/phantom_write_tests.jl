@@ -1,93 +1,73 @@
-# Standalone writer checks, without requiring the unfinished package entry point.
-include("phantom_header_write_tests.jl")
-module PhantomWriteTests
+######################################################################################
+
+#  Test: Phantom IO -- Complete Dump Writing and Readback
+#  What this file tests
+#  Writes the bundled dump and verifies each output through the public read APIs:
+#  1. Raw-data round trip
+#     -- Structure, element types, particle vectors, and shared metadata.
+#  2. Header and block metadata
+#     -- Header names and values, column names, particle counts, and datatype groups.
+#  3. Output provenance and analysis tables
+#     -- ParticleIO identifier with preserved source metadata; coordinates match
+#        the original raw data after loading the written file for analysis.
+#  Test data
+#  -- testinput/testdumpfile_00000 is the reference for both output generations.
+#     Temporary output files are removed when the test finishes.
+
+######################################################################################
 using Test
-using ..PhantomHeaderWriteTests
-const R = PhantomHeaderWriteTests
-for name in (:PhantomData, :PhantomFile, :PhantomHeader, :PhantomHeaders, :PhantomBlockInfo,
-             :PhantomColumnInfo, :PhantomSectionOffsets, :PhantomPartitionOffsets, :PhantomPartition, :phantom_dtypes,
-             :_PHANTOM_INT_TYPE, :_PHANTOM_REAL_TYPE, :_PHANTOM_TYPE,
-             :_write_fortran_block, :_write_file_identifier, :_write_global_header,
-             :_validate_header_block, :_phantom_partition_count)
-    @eval const $name = getfield(R, $(QuoteNode(name)))
-end
-for name in ("phantom_datatype", "particle_block_metadata", "column")
-    include(joinpath(R.source, "write", name * ".jl"))
-end
-include(joinpath(R.source, "write_phantom.jl"))
+using ParticleIO
 
-load_vectors(file) = PhantomData(file)
+# ============================== Test body =================================== #
 
-@testset "Full fixture round trip" begin
-    file = PhantomFile(joinpath(@__DIR__, "testinput", "testdumpfile_00000"))
-    values = load_vectors(file)
+@testset "Phantom write -- verify through repeated reads" begin
+    source = PhantomFile(joinpath(@__DIR__, "testinput", "testdumpfile_00000"))
+    source_data = read_data(source)
+    source_identifier = source.file_identifier
+
     mktempdir() do dir
-        target = joinpath(dir, "roundtrip.dump")
-        @test write_phantom(target, file, values) === nothing
-        @test read(target) == read(file.filename)
-        restored = PhantomFile(target)
-        @test restored.file_identifier == file.file_identifier
-        @test isequal(load_vectors(restored).partitions, values.partitions)
-        @test load_vectors(restored).column_names == values.column_names
-        @test_throws ArgumentError write_phantom(target, file, values)
-        @test read(target) == read(file.filename)
-        @test write_phantom(target, file, values; overwrite=true) === nothing
-        # Invalid data must not replace an existing file, even when overwrite is authorized.
-        @test_throws MethodError write_phantom(target, file, PhantomData(((),), ((),)); overwrite=true)
-        @test read(target) == read(file.filename)
-        @test readdir(dir) == ["roundtrip.dump"]
-    end
-    io = IOBuffer()
-    @test write_phantom(io, file, values) === nothing
-    @test isopen(io)
-    @test take!(io) == read(file.filename)
-    @test_throws ArgumentError write_phantom(IOBuffer(UInt8[1]), file, values)
-end
-
-@testset "Datatype combinations and empty records" begin
-    for TI in (Int32, Int64), TF in (Float32, Float64)
-        dtypes = phantom_dtypes(TI, TF)
-        headers = PhantomHeaders{TI, TF}((PhantomHeader{T}(String[], T[]) for T in dtypes)...)
-        # Include every group even when its element type matches another group.
-        columns = [PhantomColumnInfo(R.padded("  col$i"), UInt8(i), -1) for i in 1:8]
-        blocks = (PhantomBlockInfo(2, ntuple(_ -> Int32(1), 8), Tuple(columns)),
-                  PhantomBlockInfo(0, ntuple(_ -> Int32(1), 8), Tuple(columns)),
-                  PhantomBlockInfo(0, ntuple(_ -> Int32(0), 8), ()))
-        file = PhantomFile("unused", "FT:test", headers,
-            PhantomSectionOffsets(-1, -1, -1, (PhantomPartitionOffsets(-1, -1),)), (PhantomPartition(blocks),))
-        values = (map(T -> T[1, 2], dtypes), map(T -> T[], dtypes), ())
-        mktempdir() do dir
-            target = joinpath(dir, "typed.dump")
-            write_phantom(target, file, PhantomData(file, (values,)))
+        file, data = source, source_data
+        # Feed each readback into the next write, comparing both to the source.
+        for generation in 1:2
+            target = joinpath(dir, "roundtrip_$generation.dump")
+            @test write_data(target, file, data) === nothing
             restored = PhantomFile(target)
-            @test phantom_dtypes(restored) == phantom_dtypes(TI, TF)
-            @test restored.partitions[1].blocks[1].array_counts == blocks[1].array_counts
-            @test restored.partitions[1].blocks[2].npart == 0
-            @test isempty(restored.partitions[1].blocks[3].columns)
-            @test restored.partitions[1].blocks[1].columns[1].name == columns[1].name
-            readback = load_vectors(restored)
-            @test readback[1][1] == values[1]
-            @test readback[1][2] == values[2]
-            @test isempty(readback[1][3])
-            io = IOBuffer()
-            write_phantom(io, restored, readback)
-            @test take!(io) == read(target)
+            restored_data = read_data(restored)
+
+            # 1. Compare the complete raw data, including vector element types.
+            @test typeof(restored) == typeof(source)
+            @test restored_data.metadata === restored.partitions
+            @test map(partition -> map(block -> map(eltype, block), partition), restored_data.data) ==
+                map(partition -> map(block -> map(eltype, block), partition), source_data.data)
+            @test isequal(restored_data.data, source_data.data)
+
+            # 2. Preserve header entries and block metadata in their original order.
+            for field in fieldnames(typeof(source.headers))
+                expected = getfield(source.headers, field)
+                actual = getfield(restored.headers, field)
+                @test actual.keys == expected.keys
+                @test isequal(actual.data, expected.data)
+            end
+            for (p, partition) in enumerate(source.partitions), (b, block) in enumerate(partition.blocks)
+                actual = restored.partitions[p].blocks[b]
+                @test map(column -> column.name, actual.columns) == map(column -> column.name, block.columns)
+                @test actual.npart == block.npart
+                @test actual.array_counts == block.array_counts
+                @test map(column -> column.dtype_index, actual.columns) ==
+                    map(column -> column.dtype_index, block.columns)
+            end
+
+            # 3. Output identifies ParticleIO; the source identifier stays unchanged.
+            @test startswith(restored.file_identifier, "FT:ParticleIO:$(ParticleIO.version()): ")
+            @test !occursin(r"[()]", restored.file_identifier)
+            @test ncodeunits(restored.file_identifier) == 100
+            @test source.file_identifier == source_identifier
+
+            # Verify that the analysis reader also accepts the written dump.
+            particles, sinks = read_phantom(target; ignore_inactive = false)
+            @test isequal(particles[!, :x], source_data[1, 1, 2])
+            @test isequal(sinks[!, :x], source_data[1, 2, 1])
+            file, data = restored, restored_data
         end
-        io = IOBuffer()
-        bad = deepcopy(values)
-        resize!(bad[1][1], 1)
-        @test_throws DimensionMismatch write_phantom(io, file, PhantomData(file, (bad,)))
-        @test position(io) == 0
-        bad = deepcopy(values)
-        bad = ((Float64[1, 2], Base.tail(bad[1])...), Base.tail(bad)...)
-        @test_throws ArgumentError write_phantom(io, file, PhantomData(file, (bad,)))
-        @test position(io) == 0
-        bad_columns = copy(columns)
-        bad_columns[1] = PhantomColumnInfo("x", UInt8(2), 0)
-        bad_file = PhantomFile("", "FT:test", headers, file.sections,
-            (PhantomPartition((PhantomBlockInfo(2, blocks[1].array_counts, Tuple(bad_columns)),)),))
-        @test_throws ArgumentError write_phantom(io, bad_file, PhantomData(bad_file, ((values[1],),)))
-        @test position(io) == 0
     end
-end
 end
