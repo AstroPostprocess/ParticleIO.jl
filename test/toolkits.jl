@@ -2,6 +2,7 @@ using StructArrays
 using TypedTables
 
 struct ParticleTable
+    
 
 
 end
