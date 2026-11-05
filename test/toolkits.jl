@@ -1,12 +1,47 @@
 using StructArrays
 using TypedTables
 
-struct ParticleTable
+abstract type AbstractPartType end
+
+struct PhantomPartType{I} <: AbstractPartType end
+struct GadgetoPartType{I} <: AbstractPartType end
+
+abstract type AbstractParticleColumn{T <: Number} end
+
+struct ParticleColumn{T <: Number, V <: AbstractVector{T}, M} <: AbstractParticleColumn{T}
+    data     :: V
+    metadata :: M
+end
+
+struct ParticleMultiColumn{N, T <: Number, V <: AbstractVector{T}, M} <: AbstractParticleColumn{T}
+    data     :: NTuple{N,V}
+    metadata :: M
+end
+
+abstract type AbstractParticleColumnMetadata end
+
+mutable struct PhantomColumnMetadata{DI} <: AbstractParticleColumnMetadata
+    block       :: Int
+    dtype_index :: DI
+end
+
+mutable struct GadgetColumnMetadata <: AbstractParticleColumnMetadata
+    
+end
+
+
+struct ParticleTable{PT <: AbstractPartType}
     
 
 
 end
 
+
+parttype(::ParticleTable{PhantomPartType{I}}) where {I} = I
+parttype(::ParticleTable{GadgetPartType{I}}) where {I} = I
+
+simulation(::ParticleTable{<:PhantomPartType}) = :Phantom
+simulation(::ParticleTable{<:GadgetPartType}) = :Gadget
 
 N = 10000
 
